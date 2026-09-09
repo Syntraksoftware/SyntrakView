@@ -1,0 +1,7 @@
+PyQt6>=6.5
+bleak>=3.0.2
+qasync>=0.24
+numpy>=1.24
+pyqtgraph>=0.13.3
+PyOpenGL
+PyOpenGL_accelerate
