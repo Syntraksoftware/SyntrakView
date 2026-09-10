@@ -14,7 +14,6 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QPointF
 from PyQt6.QtGui import QFont, QPainter, QColor, QPen, QBrush, QMouseEvent
 
 import matplotlib
-matplotlib.use('Agg')
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
@@ -307,6 +306,7 @@ class MplCanvas(FigureCanvasQTAgg):
         ]
         self.face_colors = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#1abc9c']
         self._setup_axes()
+        self.ax.view_init(elev=20, azim=45)  # 初始视角，用户可自由旋转
 
     def _setup_axes(self):
         self.ax.set_xlim(-1.5, 1.5)
@@ -323,7 +323,6 @@ class MplCanvas(FigureCanvasQTAgg):
         self.ax.yaxis.pane.set_edgecolor('#34495e')
         self.ax.zaxis.pane.set_edgecolor('#34495e')
         self.ax.grid(True, color='#34495e', alpha=0.3)
-        self.ax.view_init(elev=20, azim=45)
 
     def update_pose(self, qw, qx, qy, qz):
         self.ax.clear()
@@ -349,7 +348,7 @@ class MplCanvas(FigureCanvasQTAgg):
         self.ax.plot3D([0, 0], [0, axis_len], [0, 0], color='#2ecc71', linewidth=1, alpha=0.5)
         self.ax.plot3D([0, 0], [0, 0], [0, axis_len], color='#3498db', linewidth=1, alpha=0.5)
         self.fig.tight_layout()
-        self.draw()
+        self.draw_idle()
 
 
 class SensorViewerDialog(QDialog):
