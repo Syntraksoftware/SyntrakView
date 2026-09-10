@@ -8,7 +8,7 @@ from PyQt6.QtGui import QPixmap, QIcon
 import time
 from datetime import datetime
 # 3D视图模块
-from skeleton_3d_view import Skeleton3DWidget
+from skeleton_qt3d_view import Qt3DSkeletonWidget
 from bvh_file_dialog import BvhFileManagerDialog
 
 class MainWindow(QWidget):
@@ -181,7 +181,7 @@ class MainWindow(QWidget):
         layout_left.addWidget(self.text_log)
 
         # ============ 右侧3D视图 ============
-        self.skeleton_view = Skeleton3DWidget()
+        self.skeleton_view = Qt3DSkeletonWidget()
 
         # ============ 整体布局 ============
         main_layout = QHBoxLayout()
