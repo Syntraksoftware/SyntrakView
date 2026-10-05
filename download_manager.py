@@ -48,10 +48,11 @@ class DownloadTask(QObject):
         self._send_cmd = send_cmd_callback
         self._retry_count = 0
         self._max_retries = 10
+        self.start_time = None  # 下载开始时间
 
         # 超时定时器：10秒没收到数据就重传
         self._timeout_timer = QTimer()
-        self._timeout_timer.setInterval(10000)
+        self._timeout_timer.setInterval(3000)
         self._timeout_timer.timeout.connect(self._on_timeout)
 
         # 断点续传：检查临时文件
@@ -70,6 +71,8 @@ class DownloadTask(QObject):
             self.status_changed.emit(self.status)
             return
         self._set_status(DownloadStatus.DOWNLOADING)
+        import time
+        self.start_time = time.time()
         self._request_batch()
 
     def pause(self):
@@ -137,6 +140,9 @@ class DownloadTask(QObject):
                 self._file_handle.write(data)
                 self._file_handle.flush()
                 self.received_size += len(data)
+                # 每收到一个有效数据块就重置超时定时器，
+                # 只有真正长时间(>3s)无数据才触发超时，避免正常传输中误超时刷屏
+                self._timeout_timer.start()
             except Exception:
                 self._timeout_timer.stop()
                 self._close_file()
