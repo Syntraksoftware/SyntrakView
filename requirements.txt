@@ -1,9 +1,14 @@
-PyQt6>=6.5
-bleak>=3.0.2
-qasync>=0.24
-numpy>=1.24
-pyqtgraph>=0.13.3
-PyOpenGL
-PyOpenGL_accelerate
-matplotlib>=3.7
-numpy-stl>=2.16
+# Syntrak View 上位机 - 依赖锁定（2026-10-05）
+# 精确锁定到已验证版本，防止将来升级导致不兼容；禁止自动升级。
+# 新建环境：pip install -r requirements.txt
+
+PyQt6==6.7.0
+PyQt6-3D==6.7.0
+bleak==3.0.2
+qasync==0.28.0
+numpy==2.5.2
+pyqtgraph==0.14.0
+PyOpenGL==3.1.10
+PyOpenGL-accelerate==3.1.10
+matplotlib==3.11.1
+numpy-stl==4.0.1
