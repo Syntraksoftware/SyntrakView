@@ -5,3 +5,5 @@ numpy>=1.24
 pyqtgraph>=0.13.3
 PyOpenGL
 PyOpenGL_accelerate
+matplotlib>=3.7
+numpy-stl>=2.16

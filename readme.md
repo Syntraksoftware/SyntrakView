@@ -4,6 +4,8 @@ Syntrak 主控上位机程序
 ## 技术栈
 Python / PyQt6 / Bleak（BLE GATT 客户端）/ PyVista、Qt3D（3D 人偶可视化）
 
+> Python 依赖已固化在 `requirements.txt`（PyQt6、bleak、qasync、numpy、pyqtgraph、PyOpenGL、matplotlib、numpy-stl 等），新建环境 `pip install -r requirements.txt` 即可复现。
+
 ## 项目功能
 - BLE 连接：扫描、连接 ESP32-S3 主控、发现服务与特征
 - 文件操作：文件列表查询（JSON）、断点续传、BVH 文件下载/上传
