@@ -16,9 +16,12 @@ class BleNotifyReassembler:
     def reset(self):
         self.buf = bytearray()
         self.total_len = 0
+        self.received_mask = bytearray()  # 每字节 0/1 标记是否已收到（丢分片检测）
 
     def feed(self, data:bytes):
-        """输入每一次notify原始data，yield完整业务包(如有)"""
+        """输入每一次notify原始data，yield完整业务包(如有)。
+        分片缺失时丢弃不完整包：缺失字节为0，会令某关节角度解析为0，
+        导致人偶偶发大幅动作后回原位。"""
         if len(data) <5:
             self.reset()
             return
@@ -31,17 +34,19 @@ class BleNotifyReassembler:
         if (flags & 0x01) !=0:
             self.buf = bytearray(total_len)
             self.total_len = total_len
+            self.received_mask = bytearray(total_len)  # 全0=未收
 
         # 越界保护
         if (offset + len(chunk_data)) > self.total_len:
             self.reset()
             return
 
-        # 拷贝分片到对应偏移
+        # 拷贝分片到对应偏移，并标记已收
         self.buf[offset:offset+len(chunk_data)] = chunk_data
+        self.received_mask[offset:offset+len(chunk_data)] = b'\x01' * len(chunk_data)
 
-        # EOF，收齐完整包，输出
+        # EOF：所有字节都已收到才输出完整包，否则丢弃（避免缺失处=0 造成角度突变）
         if (flags & 0x02) !=0:
-            if len(self.buf) == self.total_len:
+            if self.total_len > 0 and (0 not in self.received_mask):
                 yield bytes(self.buf)
             self.reset()
