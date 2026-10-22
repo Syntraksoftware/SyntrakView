@@ -1,4 +1,4 @@
-'''
+﻿'''
 功能：扫描以`Syntrak`开头设备、连接、接收 Notify、解析 IMU 数据包，向外发送信号
 '''
 import asyncio
@@ -42,13 +42,19 @@ class BleManager(QObject):
     async def disconnect(self):
         """断开连接，统一封装"""
         if self.is_connected():
+            client = self.client
             try:
-                await self.client.disconnect()
+                await client.disconnect()
             except Exception as e:
                 self.sig_log.emit(f"Disconnection Exception:{e}")
-            self.client = None
-            self.connected_addr = None
-            self.sig_disconnected.emit()
+            # 断开回调(_on_ble_disconnected)已在WinRT线程把 self.client 置 None 并 emit sig_disconnected，
+            # 这里不再无条件重复 emit，避免同一信号被 WinRT 回调线程 与 asyncio 任务两个线程并发触发
+            # （并发 emit 同一 Qt 信号是 0xC0000409 栈溢出的高危场景）。
+            # 仅当回调未触发（异常路径，self.client 仍是本次 client）时兜底清理。
+            if self.client is client:
+                self.client = None
+                self.connected_addr = None
+                self.sig_disconnected.emit()
             self.sig_log.emit("Device disconnected!")
 
     def _on_ble_disconnected(self, client):
@@ -76,6 +82,18 @@ class BleManager(QObject):
             self.sig_log.emit(f"Start connecting to: {address}")
             await client.connect()
             self.sig_log.emit("BLE connected, discovering services...")
+            
+            # 主动请求高速连接参数（Windows/WinRT后端）
+            try:
+                await client._backend.update_connection_parameters(
+                    min_interval=7.5,
+                    max_interval=15,
+                    latency=0,
+                    supervision_timeout=400
+                )
+                self.sig_log.emit("High speed conn params requested: 7.5~15ms")
+            except Exception as e:
+                self.sig_log.emit(f"Update conn params failed: {e}")
 
             # 【最终稳定写法，不调用任何discover / get_services】
             self.sig_log.emit("===== Discovered Characteristics =====")
@@ -196,6 +214,13 @@ class BleManager(QObject):
                 # ===== 批次结束通知，payload=next_offset(4B LE) =====
                 next_offset = int.from_bytes(payload[0:4], "little")
                 self.sig_batch_end.emit(next_offset)
+            elif pkg_type == 0x05:
+                # ===== 系统日志文本包(PKG_TYPE_SYS_LOG)，直接显示到System Log =====
+                try:
+                    text = payload.decode("utf-8", errors="replace")
+                    self.sig_log.emit(text)
+                except Exception:
+                    pass
             elif pkg_type == 0x10:
                 # ===== 文件列表JSON应答包，转发UI处理payload =====
                 self.sig_log.emit(f"[FileList Reply] payload len:{len(payload)}")
@@ -207,43 +232,51 @@ class BleManager(QObject):
 
     def _on_notify_imu(self, sender, data: bytes):
         """
-        chr_imu 通道notify回调，解析 ble_imu_pkt_t。
-        数据包格式（20字节）：
-          byte0:     pkg_type (0x02=PKG_TYPE_IMU_RAW)
-          byte1-2:   pkg_len (uint16 little-endian)
-          byte3:     sensor_id (uint8, 1~13)
-          byte4-19:  q[4] (4个float little-endian, qw,qx,qy,qz)
-
-        发出的 dict 格式与 skeleton_3d_view.update_imu_data 期望的一致：
-          {sensor_id: {"online": True, "quat": (qw,qx,qy,qz)}}
+        chr_imu 通道notify回调，支持两种格式：
+        1. 旧版单传感器（21字节）：head(3) + sensor_id(1) + q[4](16) + status(1)
+        2. 新版批量打包（>=22字节）：head(3) + sensor_count(1) + entries[](18字节/个)
         """
-        if len(data) < 20:
+        if len(data) < 4:
             self.sig_log.emit(f"[IMU notify] too short: {len(data)} bytes")
             return
         try:
-            # 调试：打印前10字节的十六进制，确认数据布局
-            if not hasattr(self, '_imu_hex_count'):
-                self._imu_hex_count = 0
-            self._imu_hex_count += 1
-            if self._imu_hex_count <= 3:
-                hex_str = ' '.join(f'{b:02X}' for b in data[:10])
-                print(f"[DEBUG IMU HEX] len={len(data)} bytes: {hex_str}")
             pkg_type = data[0]
             if pkg_type != 0x02:
                 self.sig_log.emit(f"[IMU notify] wrong pkg_type=0x{pkg_type:02X}, skip")
                 return
-            sensor_id = data[3]
-            qw, qx, qy, qz = struct.unpack_from('<4f', data, 4)
-            # status 字段在 byte20（如果数据包有21字节）
-            status = data[20] if len(data) >= 21 else 0
-            self.sig_log.emit(f"[IMU notify] id={sensor_id} q=[{qw:.3f},{qx:.3f},{qy:.3f},{qz:.3f}] status=0x{status:02X}")
-            # 批量格式：单元素 dict，key=sensor_id(int)
-            self.sig_imu_data.emit({
-                sensor_id: {
+            pkg_len = struct.unpack_from('<H', data, 1)[0]
+
+            result = {}
+            if pkg_len <= 21:
+                # ===== 旧版：单传感器格式 =====
+                if len(data) < 20:
+                    return
+                sensor_id = data[3]
+                qw, qx, qy, qz = struct.unpack_from('<4f', data, 4)
+                status = data[20] if len(data) >= 21 else 0
+                result[sensor_id] = {
                     "online": True,
                     "quat": (qw, qx, qy, qz),
                     "status": status,
                 }
-            })
+            else:
+                # ===== 新版：批量打包格式 =====
+                sensor_count = data[3]
+                offset = 4  # head(3) + count(1)
+                for i in range(sensor_count):
+                    if offset + 18 > len(data):
+                        break
+                    sensor_id = data[offset]
+                    qw, qx, qy, qz = struct.unpack_from('<4f', data, offset + 1)
+                    status = data[offset + 17]
+                    result[sensor_id] = {
+                        "online": True,
+                        "quat": (qw, qx, qy, qz),
+                        "status": status,
+                    }
+                    offset += 18
+
+            if result:
+                self.sig_imu_data.emit(result)
         except Exception as e:
             self.sig_log.emit(f"[IMU notify] parse error: {e}")

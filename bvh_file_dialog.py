@@ -1,5 +1,6 @@
-import json
+﻿import json
 import os
+import configparser
 from PyQt6.QtWidgets import (QDialog, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QHBoxLayout,
                              QPushButton, QTextEdit, QLabel, QMessageBox, QFileDialog,
                              QProgressBar, QWidget, QListWidget, QListWidgetItem, QAbstractItemView)
@@ -462,9 +463,15 @@ class BvhFileManagerDialog(QDialog):
             if date_dir and date_dir not in ("Syntrak_records", "sdcard"):
                 default_name = f"{date_dir}_{fname}"
 
-        # 记住上次保存位置
-        settings = QSettings("Syntrak", "SyntrakView")
-        last_dir = settings.value("last_save_dir", os.path.expanduser("~"))
+        # 从config.ini读取最近保存目录（与BVH播放打开目录共用）
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini')
+        cfg = configparser.ConfigParser()
+        cfg.read(config_path, encoding='utf-8')
+        last_dir = os.path.expanduser("~")
+        if cfg.has_option('File', 'last_bvh_dir'):
+            d = cfg.get('File', 'last_bvh_dir')
+            if os.path.isdir(d):
+                last_dir = d
         default_save_path = os.path.join(last_dir, default_name)
 
         save_path, _ = QFileDialog.getSaveFileName(
@@ -473,8 +480,12 @@ class BvhFileManagerDialog(QDialog):
         if not save_path:
             return
 
-        # 保存本次目录，下次作为默认
-        settings.setValue("last_save_dir", os.path.dirname(save_path))
+        # 保存本次目录到config.ini，下次作为默认
+        if not cfg.has_section('File'):
+            cfg.add_section('File')
+        cfg.set('File', 'last_bvh_dir', os.path.dirname(save_path))
+        with open(config_path, 'w', encoding='utf-8') as f:
+            cfg.write(f)
 
         # 添加到下载管理器（压缩下载待ESP32端miniz调试完成后启用）
         task = self.download_mgr.add_task(fullpath, save_path, use_compressed=False)
@@ -526,7 +537,18 @@ class BvhFileManagerDialog(QDialog):
             color = "#e74c3c"
         elif task.status == DownloadStatus.PAUSED:
             color = "#f39c12"
-        text = f"📄 {task.file_name}\n   {percent}%  ({received_kb:.1f}/{size_kb:.1f} KB)  -  {status_text}"
+        # 计算耗时
+        time_str = ""
+        if task.start_time and task.status in (DownloadStatus.DOWNLOADING, DownloadStatus.COMPLETED):
+            import time
+            elapsed = time.time() - task.start_time
+            if task.status == DownloadStatus.COMPLETED:
+                time_str = f"  ⏱️ {elapsed:.1f}s"
+            else:
+                # 下载中显示已用时间
+                time_str = f"  ⏱️ {elapsed:.1f}s"
+        
+        text = f"📄 {task.file_name}\n   {percent}%  ({received_kb:.1f}/{size_kb:.1f} KB)  -  {status_text}{time_str}"
         list_item.setText(text)
         list_item.setForeground(QColor(color))
 

@@ -70,11 +70,20 @@ class SensorData:
         return bool(self.status & STATUS_RUNNING)
 
     @property
-    def is_fresh(self, timeout_ms=500):
-        """数据是否新鲜（最近timeout_ms毫秒内有更新）"""
+    def is_fresh(self, timeout_ms=2000):
+        """数据是否新鲜（最近timeout_ms毫秒内有更新）
+        13个传感器轮询发送，每个传感器平均频率较低，超时设为2秒避免频繁Timeout
+        """
         if not self.valid:
             return False
         return (time.time() - self.last_update) * 1000 < timeout_ms
+
+    @property
+    def age_ms(self):
+        """距上次更新的毫秒数"""
+        if not self.valid:
+            return float('inf')
+        return (time.time() - self.last_update) * 1000
 
 
 class SensorDataParser(QObject):

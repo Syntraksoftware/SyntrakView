@@ -1,15 +1,94 @@
 ﻿import asyncio
+import os
+import configparser
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QListWidget, QListWidgetItem, QTextEdit, QLabel, QFrame, QFormLayout, QProgressBar
+    QListWidget, QListWidgetItem, QTextEdit, QLabel, QFrame, QFormLayout, QProgressBar,
+    QDialog, QDialogButtonBox, QFileDialog, QSlider, QCheckBox, QComboBox, QScrollArea, QGridLayout, QSizePolicy
 )
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QTimer
 from PyQt6.QtGui import QPixmap, QIcon
 import time
 from datetime import datetime
 # 3D视图模块
-from skeleton_qt3d_view import Qt3DSkeletonWidget
+from skeleton_qt3d_view import Qt3DSkeletonWidget, get_available_avatars, DEFAULT_AVATAR
 from bvh_file_dialog import BvhFileManagerDialog
+
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini')
+
+
+def load_config():
+    cfg = configparser.ConfigParser()
+    if os.path.exists(CONFIG_PATH):
+        cfg.read(CONFIG_PATH, encoding='utf-8')
+    return cfg
+
+
+def save_config(cfg):
+    with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+        cfg.write(f)
+
+
+def get_config_avatar():
+    cfg = load_config()
+    if cfg.has_option('Appearance', 'avatar'):
+        return cfg.get('Appearance', 'avatar')
+    return DEFAULT_AVATAR
+
+
+def set_config_avatar(avatar_name):
+    cfg = load_config()
+    if not cfg.has_section('Appearance'):
+        cfg.add_section('Appearance')
+    cfg.set('Appearance', 'avatar', avatar_name)
+    save_config(cfg)
+
+def get_config_last_bvh_dir():
+    """获取最近打开BVH文件的目录"""
+    cfg = load_config()
+    if cfg.has_option('File', 'last_bvh_dir'):
+        d = cfg.get('File', 'last_bvh_dir')
+        if os.path.isdir(d):
+            return d
+    # 默认：用户桌面的bvhdownload目录
+    default_dir = os.path.join(os.path.expanduser('~'), 'Desktop', 'bvhdownload')
+    if not os.path.isdir(default_dir):
+        default_dir = os.path.expanduser('~')
+    return default_dir
+
+def set_config_last_bvh_dir(dir_path):
+    """保存最近打开BVH文件的目录"""
+    cfg = load_config()
+    if not cfg.has_section('File'):
+        cfg.add_section('File')
+    cfg.set('File', 'last_bvh_dir', dir_path)
+    save_config(cfg)
+
+
+class AvatarSelectDialog(QDialog):
+    def __init__(self, current_avatar, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Avatar")
+        self.setMinimumSize(280, 320)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Available Avatars:"))
+        self.list_widget = QListWidget()
+        avatars = get_available_avatars()
+        for name in avatars:
+            item = QListWidgetItem(name)
+            self.list_widget.addItem(item)
+            if name == current_avatar:
+                self.list_widget.setCurrentItem(item)
+        self.list_widget.itemDoubleClicked.connect(self.accept)
+        layout.addWidget(self.list_widget)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def get_selected(self):
+        item = self.list_widget.currentItem()
+        return item.text() if item else None
 
 class MainWindow(QWidget):
     def __init__(self, ble_mgr):
@@ -121,8 +200,22 @@ class MainWindow(QWidget):
         self.btn_view_sensors.setFixedHeight(48)
         self.btn_view_sensors.setVisible(False)
 
+        # ============【新增：人偶选择按钮】============
+        self.btn_avatar = QPushButton("  Avatar")
+        self.btn_avatar.setToolTip("Select 3D avatar style")
+        self.btn_avatar.setIcon(QIcon("pics/Ski.png"))
+        self.btn_avatar.setIconSize(QSize(28, 28))
+        self.btn_avatar.setFixedHeight(44)
 
-        # 4个BLE按钮分成2行，每行2个，每个按钮占整行一半宽度
+        # ============【新增：打开BVH文件按钮】============
+        self.btn_open_bvh = QPushButton("  Play BVH")
+        self.btn_open_bvh.setToolTip("Open and play local BVH file (BLE must be disconnected)")
+        self.btn_open_bvh.setIcon(QIcon("pics/play_bvh.png"))
+        self.btn_open_bvh.setIconSize(QSize(28, 28))
+        self.btn_open_bvh.setFixedHeight(44)
+
+
+        # BLE功能按钮布局
         from PyQt6.QtWidgets import QSizePolicy
         v_btn_layout = QVBoxLayout()
         # 第一行：Sync Time, View Sensors
@@ -135,6 +228,10 @@ class MainWindow(QWidget):
         h_btn_row2.addWidget(self.btn_toggle_record, 1)
         h_btn_row2.addWidget(self.btn_file_mgr, 1)
         v_btn_layout.addLayout(h_btn_row2)
+        # 第三行：Avatar选择（单独一行）
+        v_btn_layout.addWidget(self.btn_avatar)
+        # 第四行：Open BVH（单独一行）
+        v_btn_layout.addWidget(self.btn_open_bvh)
         layout_left.addLayout(v_btn_layout)
 
         # 成员变量缓存当前录制状态
@@ -142,6 +239,8 @@ class MainWindow(QWidget):
         # 绑定点击事件
         self.btn_toggle_record.clicked.connect(self.on_toggle_record_click)
         self.btn_view_sensors.clicked.connect(self.on_view_sensors_click)
+        self.btn_avatar.clicked.connect(self.on_avatar_click)
+        self.btn_open_bvh.clicked.connect(self.on_open_bvh_click)
         # 绑定BLE录制状态信号
         self.ble_mgr.sig_recording_state.connect(self.on_recording_state_changed)
 
@@ -180,8 +279,80 @@ class MainWindow(QWidget):
         layout_left.addWidget(QLabel("System Log："))
         layout_left.addWidget(self.text_log)
 
-        # ============ 右侧3D视图 ============
-        self.skeleton_view = Qt3DSkeletonWidget()
+        # ============ 右侧3D视图（从config读取人偶）============
+        self._current_avatar = get_config_avatar()
+        self.skeleton_view = Qt3DSkeletonWidget(avatar_name=self._current_avatar)
+
+        # ============ BVH播放控制面板（默认隐藏）============
+        self.bvh_panel = QFrame()
+        self.bvh_panel.setFrameStyle(QFrame.Shape.Panel | QFrame.Shadow.Sunken)
+        self.bvh_panel.setStyleSheet("background-color: #1a1a2e; border-radius: 8px;")
+        bvh_layout = QVBoxLayout(self.bvh_panel)
+
+        # 文件信息行
+        self.lbl_bvh_info = QLabel("No BVH file loaded")
+        self.lbl_bvh_info.setStyleSheet("color: #ecf0f1; font-size: 12px;")
+        self.lbl_bvh_info.setWordWrap(True)
+        bvh_layout.addWidget(self.lbl_bvh_info)
+
+        # 进度条行
+        progress_row = QHBoxLayout()
+        self.lbl_bvh_time = QLabel("00:00 / 00:00")
+        self.lbl_bvh_time.setStyleSheet("color: #bdc3c7; font-size: 11px;")
+        self.slider_bvh = QSlider(Qt.Orientation.Horizontal)
+        self.slider_bvh.setRange(0, 1000)
+        self.slider_bvh.setValue(0)
+        self.slider_bvh.setStyleSheet("""
+            QSlider::groove:horizontal { height: 6px; background: #34495e; border-radius: 3px; }
+            QSlider::handle:horizontal { width: 14px; height: 14px; background: #3498db; border-radius: 7px; margin: -4px 0; }
+        """)
+        progress_row.addWidget(self.lbl_bvh_time)
+        progress_row.addWidget(self.slider_bvh, 1)
+        bvh_layout.addLayout(progress_row)
+
+        # 控制按钮行
+        ctrl_row = QHBoxLayout()
+        self.btn_bvh_play = QPushButton("Play")
+        self.btn_bvh_play.setFixedHeight(32)
+        self.btn_bvh_play.setStyleSheet("QPushButton { background-color: #27ae60; color: white; border-radius: 4px; } QPushButton:hover { background-color: #2ecc71; }")
+        self.btn_bvh_stop = QPushButton("Stop")
+        self.btn_bvh_stop.setFixedHeight(32)
+        self.btn_bvh_stop.setStyleSheet("QPushButton { background-color: #e74c3c; color: white; border-radius: 4px; } QPushButton:hover { background-color: #ec7063; }")
+        self.cmb_bvh_speed = QComboBox()
+        self.cmb_bvh_speed.addItems(["0.5x", "1x", "1.5x", "2x", "4x"])
+        self.cmb_bvh_speed.setCurrentIndex(1)
+        self.cmb_bvh_speed.setFixedHeight(32)
+        self.chk_bvh_loop = QCheckBox("Loop")
+        self.chk_bvh_loop.setChecked(True)
+        self.chk_bvh_loop.setStyleSheet("color: #ecf0f1;")
+        self.chk_bvh_retarget = QCheckBox("Remap Virdyn BVH")
+        self.chk_bvh_retarget.setChecked(False)
+        self.chk_bvh_retarget.setStyleSheet("color: #ecf0f1;")
+        self.chk_bvh_retarget.setToolTip("Remap Virdyn BVH format to our skeleton")
+
+        ctrl_row.addWidget(self.btn_bvh_play)
+        ctrl_row.addWidget(self.btn_bvh_stop)
+        ctrl_row.addWidget(QLabel("Speed:"))
+        ctrl_row.addWidget(self.cmb_bvh_speed)
+        ctrl_row.addWidget(self.chk_bvh_loop)
+        ctrl_row.addWidget(self.chk_bvh_retarget)
+        ctrl_row.addStretch()
+        bvh_layout.addLayout(ctrl_row)
+
+        self.bvh_panel.setVisible(False)
+
+        # BVH UI更新定时器
+        self._bvh_ui_timer = QTimer(self)
+        self._bvh_ui_timer.timeout.connect(self._update_bvh_ui)
+        self._bvh_ui_timer.start(100)
+
+        # 绑定BVH控制事件
+        self.btn_bvh_play.clicked.connect(self.on_bvh_play_click)
+        self.btn_bvh_stop.clicked.connect(self.on_bvh_stop_click)
+        self.cmb_bvh_speed.currentIndexChanged.connect(self.on_bvh_speed_changed)
+        self.chk_bvh_loop.stateChanged.connect(self.on_bvh_loop_changed)
+        self.chk_bvh_retarget.stateChanged.connect(self.on_bvh_retarget_changed)
+        self.slider_bvh.sliderMoved.connect(self.on_bvh_slider_moved)
 
         # ============ 整体布局 ============
         main_layout = QHBoxLayout()
@@ -191,7 +362,13 @@ class MainWindow(QWidget):
         left_panel.setMinimumWidth(320)  # 最小宽度
         left_panel.setMaximumWidth(420)  # 最大宽度，防止拉太宽
         main_layout.addWidget(left_panel)
-        main_layout.addWidget(self.skeleton_view, stretch=1)
+        # 右侧容器：3D视图 + BVH播放面板
+        right_container = QWidget()
+        right_layout = QVBoxLayout(right_container)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.addWidget(self.skeleton_view, stretch=1)
+        right_layout.addWidget(self.bvh_panel)
+        main_layout.addWidget(right_container, stretch=1)
         self.setLayout(main_layout)
         # ============ 绑定按钮点击 ============
         self.btn_scan.clicked.connect(self.on_click_scan)
@@ -281,10 +458,25 @@ class MainWindow(QWidget):
         self._update_connect_button(True)
         self.label_mac.setText(mac_addr)
         self.skeleton_view.set_connected(True)
+        # BLE连接时：隐藏Open BVH按钮，如果有BVH播放则停止并隐藏面板
+        self.btn_open_bvh.setVisible(False)
+        if self.skeleton_view.is_bvh_mode():
+            self.skeleton_view.stop_bvh()
+            self.bvh_panel.setVisible(False)
         self.btn_sync_time.setVisible(True)  # 连接成功显示
         self.btn_file_mgr.setVisible(True)
         self.btn_toggle_record.setVisible(True)
         self.btn_view_sensors.setVisible(True)  # 连接成功显示传感器查看按钮
+
+        # 连接成功即创建传感器数据解析器并订阅IMU数据，持续缓存
+        from sensor_data_parser import SensorDataParser
+        if not hasattr(self, '_sensor_parser') or self._sensor_parser is None:
+            self._sensor_parser = SensorDataParser()
+            try:
+                self.ble_mgr.sig_imu_data.connect(self._on_sensor_imu_data)
+                print("[SensorParser] created and subscribed on BLE connect")
+            except Exception as e:
+                print(f"[SensorParser] subscribe failed: {e}")
 
         # 刚连接默认状态：未录制
         self._is_recording = False
@@ -296,10 +488,21 @@ class MainWindow(QWidget):
         self._update_connect_button(False)
         self._clear_device_info()
         self.skeleton_view.set_connected(False)
+        # BLE断开时：显示Open BVH按钮
+        self.btn_open_bvh.setVisible(True)
         self.btn_sync_time.setVisible(False) # 断开隐藏
         self.btn_file_mgr.setVisible(False)
         self.btn_toggle_record.setVisible(False)
         self.btn_view_sensors.setVisible(False)  # 断开隐藏传感器查看按钮
+        # 断开时重置传感器解析器（下次连接重新创建）
+        if hasattr(self, '_sensor_parser'):
+            try:
+                # 解除IMU信号订阅，避免多次断开-连接后 sig_imu_data 累积多个连接
+                # （每次连接都 connect，从不断开，高频IMU数据会触发N倍槽，累积过多易压垮Qt事件队列）
+                self.ble_mgr.sig_imu_data.disconnect(self._on_sensor_imu_data)
+            except Exception:
+                pass
+            self._sensor_parser = None
 
         if self._file_dialog:
             self._file_dialog.clear_file_tree()
@@ -465,20 +668,104 @@ class MainWindow(QWidget):
         loop.create_task(self.ble_mgr.send_command(bytes(pkt), "Time Sync"))
 
     def on_view_sensors_click(self):
-        """打开传感器姿态查看窗口"""
+        """打开传感器姿态查看窗口（parser已在BLE连接时创建，直接用）"""
         from sensor_viewer_dialog import SensorViewerDialog
-        from sensor_data_parser import SensorDataParser
-        if not hasattr(self, '_sensor_parser'):
+        if not hasattr(self, '_sensor_parser') or self._sensor_parser is None:
+            # 兜底：如果还没创建（理论上不会发生）
+            from sensor_data_parser import SensorDataParser
             self._sensor_parser = SensorDataParser()
-            try:
-                self.ble_mgr.sig_imu_data.connect(self._on_sensor_imu_data)
-                print("[DEBUG] sig_imu_data connected to _on_sensor_imu_data successfully")
-            except Exception as e:
-                print(f"[DEBUG] FAILED to connect sig_imu_data: {e}")
-        else:
-            print("[DEBUG] _sensor_parser already exists, reusing")
+            self.ble_mgr.sig_imu_data.connect(self._on_sensor_imu_data)
         self._sensor_dialog = SensorViewerDialog(self._sensor_parser, self)
         self._sensor_dialog.show()
+
+    def on_avatar_click(self):
+        dlg = AvatarSelectDialog(self._current_avatar, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            selected = dlg.get_selected()
+            if selected and selected != self._current_avatar:
+                self._current_avatar = selected
+                self.skeleton_view.set_avatar(selected)
+                set_config_avatar(selected)
+                self.append_log(f'Avatar changed to: {selected}')
+
+    # ==================== BVH播放控制 ====================
+
+    def on_open_bvh_click(self):
+        """打开BVH文件对话框"""
+        try:
+            last_dir = get_config_last_bvh_dir()
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, "Open BVH File", last_dir, "BVH Files (*.bvh);;All Files (*)"
+            )
+            if file_path:
+                # 保存最近目录
+                set_config_last_bvh_dir(os.path.dirname(file_path))
+                if self.skeleton_view.load_bvh(file_path):
+                    self.bvh_panel.setVisible(True)
+                    self.btn_bvh_play.setText("Pause")
+                    self.append_log(f"[BVH] Loaded: {file_path}")
+                else:
+                    self.append_log(f"[BVH] Failed to load: {file_path}")
+        except Exception as e:
+            self.append_log(f"[BVH] Error: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def on_bvh_play_click(self):
+        if self.skeleton_view._bvh_player.playing:
+            self.skeleton_view.pause_bvh()
+            self.btn_bvh_play.setText("Play")
+        else:
+            self.skeleton_view.play_bvh()
+            self.btn_bvh_play.setText("Pause")
+
+    def on_bvh_stop_click(self):
+        self.skeleton_view.stop_bvh()
+        self.bvh_panel.setVisible(False)
+        self.btn_bvh_play.setText("Play")
+        self.slider_bvh.setValue(0)
+
+    def on_bvh_speed_changed(self, index):
+        speeds = [0.5, 1.0, 1.5, 2.0, 4.0]
+        self.skeleton_view.set_bvh_speed(speeds[index])
+
+    def on_bvh_loop_changed(self, state):
+        self.skeleton_view.set_bvh_loop(state == Qt.CheckState.Checked.value)
+
+    def on_bvh_retarget_changed(self, state):
+        enabled = (state == Qt.CheckState.Checked.value)
+        self.skeleton_view.set_bvh_retarget(enabled)
+        status = "ON" if enabled else "OFF"
+        self.append_log("[BVH] Remap Virdyn: " + status)
+
+    def on_bvh_slider_moved(self, value):
+        total = self.skeleton_view._bvh_player.num_frames
+        if total > 0:
+            frame = int(value / 1000 * (total - 1))
+            self.skeleton_view.seek_bvh(frame)
+
+    def _update_bvh_ui(self):
+        try:
+            if not self.bvh_panel.isVisible():
+                return
+            info = self.skeleton_view.get_bvh_info()
+            if info['num_frames'] == 0:
+                return
+            size_kb = info['file_size'] / 1024
+            size_str = f"{size_kb/1024:.1f} MB" if size_kb > 1024 else f"{size_kb:.0f} KB"
+            fps = 1.0 / info['frame_time'] if info['frame_time'] > 0 else 0
+            self.lbl_bvh_info.setText(
+                f"File: {info['file_path'].split(chr(47))[-1]} | Size: {size_str} | "
+                f"Joints: {info['num_joints']} | Frames: {info['num_frames']} | "
+                f"FPS: {fps:.1f} | Frame: {info['current_frame']+1}/{info['num_frames']}"
+            )
+            cur, total = info['current_time'], info['total_time']
+            self.lbl_bvh_time.setText(f"{int(cur//60):02d}:{int(cur%60):02d} / {int(total//60):02d}:{int(total%60):02d}")
+            if not self.slider_bvh.isSliderDown():
+                self.slider_bvh.setValue(int(info['progress'] * 1000))
+            self.btn_bvh_play.setText("Pause" if info['playing'] else "Play")
+        except Exception:
+            pass
 
     def _on_sensor_imu_data(self, data):
         """接收BLE转发的传感器四元数数据，转发给解析器

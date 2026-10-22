@@ -22,7 +22,7 @@ def main():
     global_logger.emitter.sig_log.connect(win.append_log)
 
     # 创建启动界面
-    splash = SplashScreen(version="v1.0")
+    splash = SplashScreen(version="v1.1")
 
     # 启动界面结束后显示主界面
     def on_splash_finished():
