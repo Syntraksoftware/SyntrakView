@@ -1243,8 +1243,12 @@ class Qt3DSkeletonWidget(QWidget):
         for i, bone in enumerate(self.bones):
             # 相对旋转
             if bone.name == 'Hips':
-                # Hips（根节点）固定不动，Pelvis控制骨盆姿态
-                rel_rot = QQuaternion()
+                # Hips（根节点）使用S1腰背部传感器控制整体躯干旋转
+                if 1 in self._angles:
+                    y, x, z = self._angles[1]
+                    rel_rot = euler_to_quaternion(y, x, z)
+                else:
+                    rel_rot = QQuaternion()
             elif bone.name == 'Pelvis':
                 # Pelvis（骨盆）使用传感器2、3的平均，就像Spine使用8、9的平均一样
                 if not hasattr(self, '_pelvis_dbg'):
