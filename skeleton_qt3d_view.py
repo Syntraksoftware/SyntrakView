@@ -620,9 +620,9 @@ def euler_to_quaternion(yaw_deg, pitch_deg, roll_deg):
 
 # 骨骼定义：(名称, 父索引, 偏移(x,y,z), STL文件, 传感器ID或None, 模型偏移)
 BONES = [
-    ("Hips",        -1, (0, 0.83, 0),       "hips.stl",      None, (0, 0, 0)),          # 0 根节点（固定）
-    ("Pelvis",       0, (0, 0, 0),           None,            None, (0, 0, 0)),          # 1 骨盆（传感器2、3平均，控制腿部）
-    ("Spine",        0, (0, 0.05, 0),        "spine.stl",     None, (0, 0.14, 0)),       # 2 上半身（传感器8、9平均，控制上身）
+    ("Hips",        -1, (0, 0.83, 0),       None,             None, (0, 0, 0)),          # 0 根节点（固定，无网格）
+    ("Pelvis",       0, (0, 0, 0),           "hips.stl",      None, (0, 0, 0)),          # 1 骨盆（S2+S3平均，hips.stl挂这里）
+    ("Spine",        0, (0, 0.05, 0),        "spine.stl",     None, (0, 0.14, 0)),       # 2 上半身（S8+S9平均，与Pelvis平级，同挂Hips下）
     ("Neck",         2, (0, 0.28, 0),        "neck.stl",      None, (0, 0.03, 0)),       # 3
     ("Head",         3, (0, 0.06, 0),        "head.stl",      None, (0, 0.05, 0)),       # 4
     ("UpperArm_L",   2, (-0.13, 0.28, 0),    "upper_arm.stl", 10,   (0, -0.12, 0)),      # 5
@@ -977,9 +977,8 @@ class Qt3DSkeletonWidget(QWidget):
             elif child_bone.name in CENTERED_CHILDREN:
                 offset_y = 0.0               # 居中：连接在父中心
             elif parent_bone.name == 'Pelvis':
-                # Pelvis无网格，大腿应连接在Hips底部（避免与髋部模型重叠）
-                hips_bone = self.bones[0]    # Hips是根节点索引0
-                offset_y = -hips_bone.model_y_length / 2
+                # Pelvis有hips.stl网格，大腿连接在网格底部
+                offset_y = -parent_bone.model_y_length / 2
             else:
                 offset_y = parent_bottom_y   # 连接在父底部（肘部/腕部/膝盖等）
 
@@ -1248,6 +1247,12 @@ class Qt3DSkeletonWidget(QWidget):
                 rel_rot = QQuaternion()
             elif bone.name == 'Pelvis':
                 # Pelvis（骨盆）使用传感器2、3的平均，就像Spine使用8、9的平均一样
+                if not hasattr(self, '_pelvis_dbg'):
+                    self._pelvis_dbg = 0
+                self._pelvis_dbg += 1
+                if self._pelvis_dbg % 30 == 0:
+                    print(f"[Pelvis DBG] keys={sorted(self._angles.keys())}, "
+                          f"a2={self._angles.get(2)}, a3={self._angles.get(3)}")
                 if 2 in self._angles and 3 in self._angles:
                     y = (self._angles[2][0] + self._angles[3][0]) * 0.5
                     x = (self._angles[2][1] + self._angles[3][1]) * 0.5
