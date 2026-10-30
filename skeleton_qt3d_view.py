@@ -55,7 +55,7 @@ DEFAULT_AVATAR = 'skier_pro'
 # 打印在所有 log（angle_log.txt / console）行首，用于与固件 FW_BUILD_TAG、BLE frame_cnt 对齐，
 # 避免"log 与代码版本不对应"。
 # 本次=版本对齐: 固件FW20261030_1549(BVH头/帧ZXY业界标准对齐+PIPE raw+s_qcorr), 上位机同步1549 =====
-HOST_BUILD_TAG = "HOST20261030_1731"
+HOST_BUILD_TAG = "HOST20261030_1741"
 
 # 各个人偶的配色方案：骨骼名 -> (R,G,B)
 AVATAR_COLORS = {
@@ -1090,11 +1090,12 @@ class Qt3DSkeletonWidget(QWidget):
             self._gear_entities.append(ski_entity)
             self._ski_transforms.append(ski_transform)
 
-        # 雪杖（左右手各一个，挂到手部骨骼下，T-Pose时竖直向下，前臂拧动时跟着画圈）
+        # 雪杖（左右手各一个，作为root_entity子实体，保持竖直向下，位置跟随手部）
+        # 与10-05备份版本一致：雪杖朝下，不随手部旋转
         hand_l_idx = next((i for i, b in enumerate(self.bones) if b.name == 'Hand_L'), 6)
         hand_r_idx = next((i for i, b in enumerate(self.bones) if b.name == 'Hand_R'), 9)
         for hand_idx, side in [(hand_l_idx, -1), (hand_r_idx, 1)]:
-            pole_entity = Qt3DCore.QEntity(self.bones[hand_idx].entity)
+            pole_entity = Qt3DCore.QEntity(self.root_entity)
             pole_mesh = Qt3DRender.QMesh()
             pole_mesh.setSource(QUrl.fromLocalFile(os.path.join(models_dir, 'pole.stl')))
             pole_entity.addComponent(pole_mesh)
@@ -1102,11 +1103,7 @@ class Qt3DSkeletonWidget(QWidget):
             pole_mat.setDiffuse(QColor(*gear_colors['pole']))
             pole_entity.addComponent(pole_mat)
             pole_transform = Qt3DCore.QTransform()
-            # 雪杖STL原点在中心，下移半个杖长让手柄(顶端)对准手掌
-            # Hand骨骼local X在T-Pose时=world Y轴方向，side*0.35即world向下
-            pole_transform.setTranslation(QVector3D(0, -0.08, -0.35))
-            # T-Pose时雪杖水平指向后方（绕X轴旋转90°，从竖直转为水平向后）
-            pole_transform.setRotation(QQuaternion.fromAxisAndAngle(QVector3D(1, 0, 0), 90))
+            pole_transform.setTranslation(QVector3D(side * 0.2, 0.5, 0))
             pole_entity.addComponent(pole_transform)
             self._gear_entities.append(pole_entity)
             self._pole_transforms.append(pole_transform)
@@ -1539,7 +1536,17 @@ class Qt3DSkeletonWidget(QWidget):
                 # 根骨骼世界位置 = offset
                 world_pos[i] = bone.offset
 
-        # 雪杖已挂到前臂骨骼下，自动跟随前臂旋转，无需手动更新
+        # 更新雪杖位置（跟随手部，但保持竖直向下）— 与10-05备份版本一致
+        for pole_t, (hand_idx, side) in zip(self._pole_transforms, self._pole_hand_indices):
+            hand_world_pos = world_pos[hand_idx]
+            # 雪杖位置 = 手部世界位置 + 偏移（稍微偏外侧和偏下）
+            pole_pos = QVector3D(
+                hand_world_pos.x() + side * 0.03,
+                hand_world_pos.y() - 0.15,
+                hand_world_pos.z()
+            )
+            pole_t.setTranslation(pole_pos)
+            # 雪杖旋转保持默认（竖直向下），不随手部旋转
 
         # BVH重定向模式下，滑雪板绕Y轴180度，同时Z偏移取反（保持脚在滑雪板上的位置）
         for ski_t in self._ski_transforms:
