@@ -55,7 +55,7 @@ DEFAULT_AVATAR = 'skier_pro'
 # 打印在所有 log（angle_log.txt / console）行首，用于与固件 FW_BUILD_TAG、BLE frame_cnt 对齐，
 # 避免"log 与代码版本不对应"。
 # 本次=版本对齐: 固件FW20261030_1549(BVH头/帧ZXY业界标准对齐+PIPE raw+s_qcorr), 上位机同步1549 =====
-HOST_BUILD_TAG = "HOST20261030_1638"
+HOST_BUILD_TAG = "HOST20261030_1731"
 
 # 各个人偶的配色方案：骨骼名 -> (R,G,B)
 AVATAR_COLORS = {
@@ -1383,10 +1383,10 @@ class Qt3DSkeletonWidget(QWidget):
                 rel_rot = euler_to_quaternion(y, x, z)
             elif bone.name == 'ForeArm_L':
                 if self._bvh_mode and self._bvh_retarget:
-                    # virdyn 重定向：输出已是"标准相对旋转"（tpose已内嵌），走通用 y/x 交换（git HEAD原逻辑）
+                    # virdyn 重定向：直接用人体坐标 euler(y,x,z)，与备份版本一致
                     if 12 in self._angles:
                         y, x, z = self._angles[12]
-                        rel_rot = euler_to_quaternion(x, y, z)
+                        rel_rot = euler_to_quaternion(y, x, z)
                     else:
                         rel_rot = QQuaternion()
                 elif 12 in self._angles:
@@ -1400,9 +1400,10 @@ class Qt3DSkeletonWidget(QWidget):
                     rel_rot = QQuaternion()
             elif bone.name == 'ForeArm_R':
                 if self._bvh_mode and self._bvh_retarget:
+                    # virdyn 重定向：直接用人体坐标 euler(y,x,z)，与备份版本一致
                     if 13 in self._angles:
                         y, x, z = self._angles[13]
-                        rel_rot = euler_to_quaternion(x, y, z)
+                        rel_rot = euler_to_quaternion(y, x, z)
                     else:
                         rel_rot = QQuaternion()
                 elif 13 in self._angles:
@@ -1416,10 +1417,11 @@ class Qt3DSkeletonWidget(QWidget):
                     rel_rot = QQuaternion()
             elif bone.name == 'UpperArm_L':
                 if self._bvh_mode and self._bvh_retarget:
-                    # virdyn 重定向：输出已是"标准相对旋转"（含tpose），走通用 y/x 交换（git HEAD原逻辑）
+                    # virdyn 标准BVH重定向：retargeted 输出已是人体坐标 euler(y,x,z)，直接用
+                    # （10-05备份版本实测播放virdyn正确，此处e2q(y,x,z)不交换y/x）
                     if 10 in self._angles:
                         y, x, z = self._angles[10]
-                        rel_rot = euler_to_quaternion(x, y, z)
+                        rel_rot = euler_to_quaternion(y, x, z)
                     else:
                         rel_rot = QQuaternion()
                 else:
@@ -1433,9 +1435,10 @@ class Qt3DSkeletonWidget(QWidget):
                     rel_rot = q_arm
             elif bone.name == 'UpperArm_R':
                 if self._bvh_mode and self._bvh_retarget:
+                    # virdyn 重定向：直接用人体坐标 euler(y,x,z)，与备份版本一致
                     if 11 in self._angles:
                         y, x, z = self._angles[11]
-                        rel_rot = euler_to_quaternion(x, y, z)
+                        rel_rot = euler_to_quaternion(y, x, z)
                     else:
                         rel_rot = QQuaternion()
                 else:
@@ -1447,10 +1450,15 @@ class Qt3DSkeletonWidget(QWidget):
                     rel_rot = q_arm
             elif bone.sensor_id and bone.sensor_id in self._angles:
                 y, x, z = self._angles[bone.sensor_id]
-                # Qt3D骨骼段长轴在local Y（如前臂offset沿Y-），euler的Yrotation会绕段长轴=拧。
-                # 固件输出约定：Y=前后弯曲、X=拧(绕长轴)、Z=屈肘。
-                # 故交换y/x：固件Y(前后)→euler X(绕local X横轴=前后)，固件X(拧)→euler Y(绕长轴=拧)。
-                rel_rot = euler_to_quaternion(x, y, z)
+                if self._bvh_mode and self._bvh_retarget:
+                    # virdyn 标准BVH重定向：retargeted 输出已是人体坐标 euler(y,x,z)，直接用
+                    # （10-05备份版本实测播放virdyn正确，此处e2q(y,x,z)不交换y/x）
+                    rel_rot = euler_to_quaternion(y, x, z)
+                else:
+                    # Qt3D骨骼段长轴在local Y（如前臂offset沿Y-），euler的Yrotation会绕段长轴=拧。
+                    # 固件输出约定：Y=前后弯曲、X=拧(绕长轴)、Z=屈肘。
+                    # 故交换y/x：固件Y(前后)→euler X(绕local X横轴=前后)，固件X(拧)→euler Y(绕长轴=拧)。
+                    rel_rot = euler_to_quaternion(x, y, z)
             else:
                 rel_rot = QQuaternion()
 
