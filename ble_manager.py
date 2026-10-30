@@ -201,6 +201,16 @@ class BleManager(QObject):
                         off = base + (sid - 1) * 12
                         y, x, z = struct.unpack_from('<fff', payload, off)
                         joint_angles[sid] = [y, x, z]
+                    # 采集帧号(固件60Hz g_bvh_frame_cnt)，随角度包透传，供渲染侧log对齐
+                    # 旧固件包(166B)无帧号，置0
+                    if len(payload) >= 170:
+                        joint_angles['frame_cnt'] = struct.unpack_from('<I', payload, 166)[0]
+                    else:
+                        joint_angles['frame_cnt'] = 0
+                    # 调试：打印 S3/S5
+                    s3 = joint_angles.get(3, [0,0,0])
+                    s5 = joint_angles.get(5, [0,0,0])
+                    print(f"[PC RX] pkt#{self._angle_pkt_count} S3=({s3[0]:.1f},{s3[1]:.1f},{s3[2]:.1f}) S5=({s5[0]:.1f},{s5[1]:.1f},{s5[2]:.1f})")
                     self.sig_angle_data.emit(joint_angles)
                 else:
                     print(f"[BLE ANGLE] ERROR: payload too short ({len(payload)}), full_pkt={full_pkt[:20].hex()}")
