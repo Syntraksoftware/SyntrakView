@@ -55,7 +55,7 @@ DEFAULT_AVATAR = 'skier_pro'
 # 打印在所有 log（angle_log.txt / console）行首，用于与固件 FW_BUILD_TAG、BLE frame_cnt 对齐，
 # 避免"log 与代码版本不对应"。
 # 本次=版本对齐: 固件FW20261030_1549(BVH头/帧ZXY业界标准对齐+PIPE raw+s_qcorr), 上位机同步1549 =====
-HOST_BUILD_TAG = "HOST20261030_1741"
+HOST_BUILD_TAG = "HOST20261031_1200"
 
 # 各个人偶的配色方案：骨骼名 -> (R,G,B)
 AVATAR_COLORS = {
@@ -1388,11 +1388,9 @@ class Qt3DSkeletonWidget(QWidget):
                         rel_rot = QQuaternion()
                 elif 12 in self._angles:
                     y, x, z = self._angles[12]
-                    # 前臂: 固件改后S12/S13输出"相对上臂"euler(ey,ex,ez)。
-                    # ez=前屈(绕垂直长轴)->pitch, ey=拧转(绕长轴)->yaw, ex=roll。
-                    # 前臂mesh长轴沿local Y, 前屈绕local X(pitch): 绕X负转才向前。
-                    # 固件前屈ez为正(向后), 取反(-z)使绕X负转向前(仿真验证F2910双手Z>0)。
-                    rel_rot = euler_to_quaternion(y, -z, x)
+                    # 固件方案B(T-pose双臂水平标定)输出标准euler(ey,ex,ez)，与固件BVH存盘
+                    # ZXY(Ry·Rx·Rz)标准重建一致，统一用e2q(y,x,z)。(旧固件轴hack已移除)
+                    rel_rot = euler_to_quaternion(y, x, z)
                 else:
                     rel_rot = QQuaternion()
             elif bone.name == 'ForeArm_R':
@@ -1405,11 +1403,8 @@ class Qt3DSkeletonWidget(QWidget):
                         rel_rot = QQuaternion()
                 elif 13 in self._angles:
                     y, x, z = self._angles[13]
-                    rel_rot = euler_to_quaternion(y, -z, x)
-                    # 右侧镜像：固件右侧输出是人体镜像(与左侧符号相反)，而Qt3D骨架左右局部坐标
-                    # 相同(仅offset x±)。对右侧绕竖直Y轴180°镜像 q'=(w,-x,y,-z)，
-                    # 使前屈方向与左手对称(右前屈ez-89→pitch+89向前)。
-                    rel_rot = QQuaternion(rel_rot.scalar(), -rel_rot.x(), rel_rot.y(), -rel_rot.z())
+                    # 固件方案B标准euler(ey,ex,ez)，同左侧用e2q(y,x,z)，移除旧镜像hack。
+                    rel_rot = euler_to_quaternion(y, x, z)
                 else:
                     rel_rot = QQuaternion()
             elif bone.name == 'UpperArm_L':
@@ -1422,13 +1417,12 @@ class Qt3DSkeletonWidget(QWidget):
                     else:
                         rel_rot = QQuaternion()
                 else:
-                    # B方案：上臂只用臂传感器S10(相对A-pose)，勿叠加肩S8(前举超90)。
+                    # 方案B：上臂只用臂传感器S10(相对T-pose双臂水平)，勿叠加肩S8(前举超90)。
+                    # 固件输出标准euler(ey,ex,ez)，用e2q(y,x,z)与固件BVH标准重建一致。
                     q_arm = QQuaternion()
                     if 10 in self._angles:
                         y, x, z = self._angles[10]
-                        # 实机裁决(HOST1514): e2q(ey,ex,ez)前举变竖直/下垂变前后,与Qt3D数学(前举前后)矛盾。
-                        #   要渲染==数学e2q(ey,ex,ez)(前举mesh Z向前、下垂mesh Y向下),需 e2q(z,x,y)。
-                        q_arm = euler_to_quaternion(z, x, y)
+                        q_arm = euler_to_quaternion(y, x, z)
                     rel_rot = q_arm
             elif bone.name == 'UpperArm_R':
                 if self._bvh_mode and self._bvh_retarget:
@@ -1439,11 +1433,11 @@ class Qt3DSkeletonWidget(QWidget):
                     else:
                         rel_rot = QQuaternion()
                 else:
-                    # B方案：上臂只用臂传感器S11(相对A-pose)。固件euler(ey,ex,ez)同左。
+                    # 方案B：上臂只用臂传感器S11(相对T-pose双臂水平)。固件标准euler(ey,ex,ez)，同左。
                     q_arm = QQuaternion()
                     if 11 in self._angles:
                         y, x, z = self._angles[11]
-                        q_arm = euler_to_quaternion(z, x, y)
+                        q_arm = euler_to_quaternion(y, x, z)
                     rel_rot = q_arm
             elif bone.sensor_id and bone.sensor_id in self._angles:
                 y, x, z = self._angles[bone.sensor_id]
@@ -1452,24 +1446,15 @@ class Qt3DSkeletonWidget(QWidget):
                     # （10-05备份版本实测播放virdyn正确，此处e2q(y,x,z)不交换y/x）
                     rel_rot = euler_to_quaternion(y, x, z)
                 else:
-                    # Qt3D骨骼段长轴在local Y（如前臂offset沿Y-），euler的Yrotation会绕段长轴=拧。
-                    # 固件输出约定：Y=前后弯曲、X=拧(绕长轴)、Z=屈肘。
-                    # 故交换y/x：固件Y(前后)→euler X(绕local X横轴=前后)，固件X(拧)→euler Y(绕长轴=拧)。
-                    rel_rot = euler_to_quaternion(x, y, z)
+                    # 固件方案B输出标准euler(ey,ex,ez)，与固件BVH存盘ZXY(Ry·Rx·Rz)标准重建一致，
+                    # 统一用e2q(y,x,z)。(旧固件轴约定 hack e2q(x,y,z) 已移除)
+                    rel_rot = euler_to_quaternion(y, x, z)
             else:
                 rel_rot = QQuaternion()
 
-            # T-Pose初始旋转：校准后单位四元数对应双手展开的T-Pose
-            # 上臂初始向下(Y负)，T-Pose时水平展开(X方向)，需绕Z轴旋转90度
-            # 注意：必须在计算world_rot之前应用，否则world_pos计算错误
-            # BVH重定向模式下，重定向已返回完整相对旋转，跳过T-Pose应用
-            if not (self._bvh_mode and self._bvh_retarget):
-                if bone.name == 'UpperArm_L':
-                    tpose_rot = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), -90)
-                    rel_rot = rel_rot * tpose_rot
-                elif bone.name == 'UpperArm_R':
-                    tpose_rot = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), 90)
-                    rel_rot = rel_rot * tpose_rot
+            # 固件方案B(T-pose双臂水平标定)基准：角度0即双臂水平，上位机骨骼UpperArm offset已
+            # 按T-pose水平建模，不再叠加tpose旋转(旧逻辑把双臂水平转下垂，方向反了)。
+            # 注：勾选remap播放virdyn时走上方retarget分支，本块不生效，不受影响。
 
             # Gimbal lock continuity: euler_to_quaternion may return q or -q (same rotation).
             # Pick the branch closest to previous frame to avoid 180° visual flips.
