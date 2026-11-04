@@ -1090,12 +1090,11 @@ class Qt3DSkeletonWidget(QWidget):
             self._gear_entities.append(ski_entity)
             self._ski_transforms.append(ski_transform)
 
-        # 雪杖（左右手各一个，作为root_entity子实体，保持竖直向下，位置跟随手部）
-        # 与10-05备份版本一致：雪杖朝下，不随手部旋转
-        hand_l_idx = next((i for i, b in enumerate(self.bones) if b.name == 'Hand_L'), 6)
-        hand_r_idx = next((i for i, b in enumerate(self.bones) if b.name == 'Hand_R'), 9)
+        # 雪杖（左右手各一个，挂到手部骨骼下，T-Pose时竖直向下，前臂拧动时跟着画圈）
+        hand_l_idx = next((i for i, b in enumerate(self.bones) if b.name == 'Hand_L'), 7)
+        hand_r_idx = next((i for i, b in enumerate(self.bones) if b.name == 'Hand_R'), 10)
         for hand_idx, side in [(hand_l_idx, -1), (hand_r_idx, 1)]:
-            pole_entity = Qt3DCore.QEntity(self.root_entity)
+            pole_entity = Qt3DCore.QEntity(self.bones[hand_idx].entity)
             pole_mesh = Qt3DRender.QMesh()
             pole_mesh.setSource(QUrl.fromLocalFile(os.path.join(models_dir, 'pole.stl')))
             pole_entity.addComponent(pole_mesh)
@@ -1103,7 +1102,10 @@ class Qt3DSkeletonWidget(QWidget):
             pole_mat.setDiffuse(QColor(*gear_colors['pole']))
             pole_entity.addComponent(pole_mat)
             pole_transform = Qt3DCore.QTransform()
-            pole_transform.setTranslation(QVector3D(side * 0.2, 0.5, 0))
+            # 雪杖STL原点在中心，下移半个杖长让手柄(顶端)对准手掌
+            pole_transform.setTranslation(QVector3D(0, -0.08, -0.35))
+            # T-Pose时雪杖水平指向后方（绕X轴旋转90°，从竖直转为水平向后）
+            pole_transform.setRotation(QQuaternion.fromAxisAndAngle(QVector3D(1, 0, 0), 90))
             pole_entity.addComponent(pole_transform)
             self._gear_entities.append(pole_entity)
             self._pole_transforms.append(pole_transform)
@@ -1388,9 +1390,9 @@ class Qt3DSkeletonWidget(QWidget):
                         rel_rot = QQuaternion()
                 elif 12 in self._angles:
                     y, x, z = self._angles[12]
-                    # 固件方案B(T-pose双臂水平标定)输出标准euler(ey,ex,ez)，与固件BVH存盘
-                    # ZXY(Ry·Rx·Rz)标准重建一致，统一用e2q(y,x,z)。(旧固件轴hack已移除)
-                    rel_rot = euler_to_quaternion(y, x, z)
+                    # 方案G：小臂共轭 T^-1*q*T(T=Rz(-90))，使小臂前屈=绕人体Y(纯前屈)。
+                    _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), -90)
+                    rel_rot = _T.conjugated() * euler_to_quaternion(y, x, z) * _T
                 else:
                     rel_rot = QQuaternion()
             elif bone.name == 'ForeArm_R':
@@ -1403,8 +1405,9 @@ class Qt3DSkeletonWidget(QWidget):
                         rel_rot = QQuaternion()
                 elif 13 in self._angles:
                     y, x, z = self._angles[13]
-                    # 固件方案B标准euler(ey,ex,ez)，同左侧用e2q(y,x,z)，移除旧镜像hack。
-                    rel_rot = euler_to_quaternion(y, x, z)
+                    # 方案G：右臂小臂共轭 T^-1*q*T(T=Rz(+90))。
+                    _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), 90)
+                    rel_rot = _T.conjugated() * euler_to_quaternion(y, x, z) * _T
                 else:
                     rel_rot = QQuaternion()
             elif bone.name == 'UpperArm_L':
@@ -1417,13 +1420,14 @@ class Qt3DSkeletonWidget(QWidget):
                     else:
                         rel_rot = QQuaternion()
                 else:
-                    # 方案B：上臂只用臂传感器S10(相对T-pose双臂水平)，勿叠加肩S8(前举超90)。
-                    # 固件输出标准euler(ey,ex,ez)，用e2q(y,x,z)与固件BVH标准重建一致。
+                    # 方案G：上臂含 tpose_rot T=Rz(-90)，使offset链/雪杖跟随水平T-pose基准。
+                    # 固件输出标准euler(ey,ex,ez)，用e2q(y,x,z)。
                     q_arm = QQuaternion()
                     if 10 in self._angles:
                         y, x, z = self._angles[10]
                         q_arm = euler_to_quaternion(y, x, z)
-                    rel_rot = q_arm
+                    _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), -90)
+                    rel_rot = q_arm * _T
             elif bone.name == 'UpperArm_R':
                 if self._bvh_mode and self._bvh_retarget:
                     # virdyn 重定向：直接用人体坐标 euler(y,x,z)，与备份版本一致
@@ -1433,12 +1437,13 @@ class Qt3DSkeletonWidget(QWidget):
                     else:
                         rel_rot = QQuaternion()
                 else:
-                    # 方案B：上臂只用臂传感器S11(相对T-pose双臂水平)。固件标准euler(ey,ex,ez)，同左。
+                    # 方案G：右臂上臂含 tpose_rot T=Rz(+90)，同左。
                     q_arm = QQuaternion()
                     if 11 in self._angles:
                         y, x, z = self._angles[11]
                         q_arm = euler_to_quaternion(y, x, z)
-                    rel_rot = q_arm
+                    _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), 90)
+                    rel_rot = q_arm * _T
             elif bone.sensor_id and bone.sensor_id in self._angles:
                 y, x, z = self._angles[bone.sensor_id]
                 if self._bvh_mode and self._bvh_retarget:
@@ -1487,6 +1492,8 @@ class Qt3DSkeletonWidget(QWidget):
                              'ForeArm_L', 'ForeArm_R',
                              'Hand_L', 'Hand_R',
                              'Foot_L', 'Foot_R'}
+            # 实时BLE朝前(−Z)：躯干/头/脚绕Y180翻到对向观察者；脚取反model_offset.z保持相对位置
+            FACE_MESHES = {'Spine', 'Neck', 'Head', 'Foot_L', 'Foot_R'}
             if bone.has_mesh and hasattr(bone, 'mesh_transform'):
                 if self._bvh_mode and self._bvh_retarget and bone.name in ROTATE_MESHES:
                     bone.mesh_transform.setRotation(QQuaternion.fromAxisAndAngle(QVector3D(0, 1, 0), 180))
@@ -1497,50 +1504,36 @@ class Qt3DSkeletonWidget(QWidget):
                     else:
                         bone.mesh_transform.setTranslation(bone.model_offset)
                 else:
-                    # 右手镜像旋转（与左手对称）
-                    if bone.name == 'Hand_R':
+                    # 实时BLE朝前：躯干/头/脚绕Y180；Hand_R镜像(与左手对称)；其余(手臂非Hand_R/腿)单位
+                    if bone.name in FACE_MESHES:
                         bone.mesh_transform.setRotation(
                             QQuaternion.fromAxisAndAngle(QVector3D(0, 1, 0), 180))
+                        if bone.name in ('Foot_L', 'Foot_R'):
+                            bone.mesh_transform.setTranslation(QVector3D(
+                                bone.model_offset.x(), bone.model_offset.y(), -bone.model_offset.z()))
+                        else:
+                            bone.mesh_transform.setTranslation(bone.model_offset)
+                    elif bone.name == 'Hand_R':
+                        bone.mesh_transform.setRotation(
+                            QQuaternion.fromAxisAndAngle(QVector3D(0, 1, 0), 180))
+                        bone.mesh_transform.setTranslation(bone.model_offset)
                     else:
                         bone.mesh_transform.setRotation(QQuaternion())
-                    bone.mesh_transform.setTranslation(bone.model_offset)
+                        bone.mesh_transform.setTranslation(bone.model_offset)
 
         # Save per-bone rel_rot for next frame's gimbal-lock continuity
         self._prev_rel_rot = [bone.joint_transform.rotation() for bone in self.bones]
 
-        # 计算世界位置（用于雪杖跟随手部）
-        world_pos = [QVector3D()] * len(self.bones)
-        for i, bone in enumerate(self.bones):
-            if bone.parent_idx >= 0:
-                # 子骨骼世界位置 = 父骨骼世界位置 + 父骨骼世界旋转 * 子骨骼offset
-                parent_world_pos = world_pos[bone.parent_idx]
-                parent_world_rot = world_rot[bone.parent_idx]
-                rotated_offset = parent_world_rot.rotatedVector(bone.offset)
-                world_pos[i] = parent_world_pos + rotated_offset
-            else:
-                # 根骨骼世界位置 = offset
-                world_pos[i] = bone.offset
+        # 雪杖已挂到前臂/手部骨骼下，自动跟随手臂旋转，无需手动更新
 
-        # 更新雪杖位置（跟随手部，但保持竖直向下）— 与10-05备份版本一致
-        for pole_t, (hand_idx, side) in zip(self._pole_transforms, self._pole_hand_indices):
-            hand_world_pos = world_pos[hand_idx]
-            # 雪杖位置 = 手部世界位置 + 偏移（稍微偏外侧和偏下）
-            pole_pos = QVector3D(
-                hand_world_pos.x() + side * 0.03,
-                hand_world_pos.y() - 0.15,
-                hand_world_pos.z()
-            )
-            pole_t.setTranslation(pole_pos)
-            # 雪杖旋转保持默认（竖直向下），不随手部旋转
-
-        # BVH重定向模式下，滑雪板绕Y轴180度，同时Z偏移取反（保持脚在滑雪板上的位置）
+        # 滑雪板：实时BLE朝前(−Z)与virdyn一致，绕Y轴180度并Z偏移取反（保持脚在滑雪板上的位置）
         for ski_t in self._ski_transforms:
             if self._bvh_mode and self._bvh_retarget:
                 ski_t.setRotation(QQuaternion.fromAxisAndAngle(QVector3D(0, 1, 0), 180))
                 ski_t.setTranslation(QVector3D(0, -0.05, -0.2))  # Z取反
             else:
-                ski_t.setRotation(QQuaternion())
-                ski_t.setTranslation(QVector3D(0, -0.05, 0.2))
+                ski_t.setRotation(QQuaternion.fromAxisAndAngle(QVector3D(0, 1, 0), 180))
+                ski_t.setTranslation(QVector3D(0, -0.05, -0.2))
 
 
     # ==================== 3D视图相机控制 ====================
