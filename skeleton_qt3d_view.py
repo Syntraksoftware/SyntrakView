@@ -1413,8 +1413,9 @@ class Qt3DSkeletonWidget(QWidget):
                         rel_rot = QQuaternion()
                 elif 12 in self._angles:
                     y, x, z = self._angles[12]
-                    # 移除方案G共轭T(Rz(-90))(垂臂锁水平根因)，与retarget一致：直接用人体坐标 euler(y,x,z)
-                    rel_rot = euler_to_quaternion(y, x, z)
+                    # T-pose基准修正：默认骨架ForeArm沿-Y(下垂)，T=Rz(-90)把它转到水平T-pose；垂臂需固件侧修
+                    _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), -90)
+                    rel_rot = _T.conjugated() * euler_to_quaternion(y, x, z) * _T
                 else:
                     rel_rot = QQuaternion()
             elif bone.name == 'ForeArm_R':
@@ -1427,8 +1428,9 @@ class Qt3DSkeletonWidget(QWidget):
                         rel_rot = QQuaternion()
                 elif 13 in self._angles:
                     y, x, z = self._angles[13]
-                    # 移除方案G共轭T(Rz(+90))(垂臂锁水平根因)，与retarget一致：直接用人体坐标 euler(y,x,z)
-                    rel_rot = euler_to_quaternion(y, x, z)
+                    # T-pose基准修正：默认骨架ForeArm沿-Y(下垂)，T=Rz(+90)把它转到水平T-pose；垂臂需固件侧修
+                    _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), 90)
+                    rel_rot = _T.conjugated() * euler_to_quaternion(y, x, z) * _T
                 else:
                     rel_rot = QQuaternion()
             elif bone.name == 'UpperArm_L':
@@ -1441,12 +1443,13 @@ class Qt3DSkeletonWidget(QWidget):
                     else:
                         rel_rot = QQuaternion()
                 else:
-                    # 移除方案G遗留 T=Rz(-90)(垂臂锁水平根因)，与retarget一致：直接用人体坐标 euler(y,x,z)
+                    # T-pose基准修正：默认骨架ForeArm沿-Y(下垂)，T=Rz(-90)把上臂链转到水平T-pose，叠加人体坐标相对旋转
+                    q_arm = QQuaternion()
                     if 10 in self._angles:
                         y, x, z = self._angles[10]
-                        rel_rot = euler_to_quaternion(y, x, z)
-                    else:
-                        rel_rot = QQuaternion()
+                        q_arm = euler_to_quaternion(y, x, z)
+                    _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), -90)
+                    rel_rot = q_arm * _T
             elif bone.name == 'UpperArm_R':
                 if self._bvh_mode and self._bvh_retarget:
                     # virdyn 重定向：直接用人体坐标 euler(y,x,z)，与备份版本一致
@@ -1456,12 +1459,13 @@ class Qt3DSkeletonWidget(QWidget):
                     else:
                         rel_rot = QQuaternion()
                 else:
-                    # 移除方案G遗留 T=Rz(+90)(垂臂锁水平根因)，与retarget一致：直接用人体坐标 euler(y,x,z)
+                    # T-pose基准修正：默认骨架ForeArm沿-Y(下垂)，T=Rz(+90)把上臂链转到水平T-pose，叠加人体坐标相对旋转
+                    q_arm = QQuaternion()
                     if 11 in self._angles:
                         y, x, z = self._angles[11]
-                        rel_rot = euler_to_quaternion(y, x, z)
-                    else:
-                        rel_rot = QQuaternion()
+                        q_arm = euler_to_quaternion(y, x, z)
+                    _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), 90)
+                    rel_rot = q_arm * _T
             elif bone.sensor_id and bone.sensor_id in self._angles:
                 y, x, z = self._angles[bone.sensor_id]
                 if self._bvh_mode and self._bvh_retarget:
