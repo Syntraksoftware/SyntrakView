@@ -55,7 +55,7 @@ DEFAULT_AVATAR = 'skier_pro'
 # 打印在所有 log（angle_log.txt / console）行首，用于与固件 FW_BUILD_TAG、BLE frame_cnt 对齐，
 # 避免"log 与代码版本不对应"。
 # 本次=版本对齐: 固件FW20261030_1549(BVH头/帧ZXY业界标准对齐+PIPE raw+s_qcorr), 上位机同步1549 =====
-HOST_BUILD_TAG = "HOST20261031_1200"
+HOST_BUILD_TAG = "HOST20261104_1120"
 
 # 各个人偶的配色方案：骨骼名 -> (R,G,B)
 AVATAR_COLORS = {
@@ -670,21 +670,23 @@ def average_euler(a, b):
 BONES = [
     ("Hips",        -1, (0, 0.83, 0),       None,             None, (0, 0, 0)),          # 0 根节点（固定，无网格）
     ("Pelvis",       0, (0, 0, 0),           "hips.stl",      None, (0, 0, 0)),          # 1 骨盆（S2+S3平均，hips.stl挂这里）
-    ("Spine",        0, (0, 0.05, 0),        "spine.stl",     None, (0, 0.14, 0)),       # 2 上半身（S8+S9平均，与Pelvis平级，同挂Hips下）
+    ("Spine",        0, (0, 0.05, 0),        "spine.stl",     None, (0, 0.14, 0)),       # 2 上半身（实时恒Q，virdyn用S8+S9平均；与Pelvis平级）
     ("Neck",         2, (0, 0.28, 0),        "neck.stl",      None, (0, 0.03, 0)),       # 3
     ("Head",         3, (0, 0.06, 0),        "head.stl",      None, (0, 0.05, 0)),       # 4
-    ("UpperArm_L",   2, (-0.13, 0.28, 0),    "upper_arm.stl", 10,   (0, -0.12, 0)),      # 5
-    ("ForeArm_L",    5, (0, -0.24, 0),       "forearm.stl",   12,   (0, -0.11, 0)),      # 6
-    ("Hand_L",       6, (0, -0.22, 0),       "hand.stl",      None, (0, -0.028, 0)),     # 7
-    ("UpperArm_R",   2, (0.13, 0.28, 0),     "upper_arm.stl", 11,   (0, -0.12, 0)),      # 8
-    ("ForeArm_R",    8, (0, -0.24, 0),       "forearm.stl",   13,   (0, -0.11, 0)),      # 9
-    ("Hand_R",       9, (0, -0.22, 0),       "hand.stl",      None, (0, -0.028, 0)),     # 10
-    ("Thigh_L",      1, (-0.06, -0.05, 0),   "thigh.stl",     4,    (0, -0.18, 0)),      # 11
-    ("Shin_L",      11, (0, -0.36, 0),       "shin.stl",      6,    (0, -0.17, 0)),      # 12
-    ("Foot_L",      12, (0, -0.34, 0),       "foot.stl",      None, (0, -0.025, 0.04)),  # 13
-    ("Thigh_R",      1, (0.06, -0.05, 0),    "thigh.stl",     5,    (0, -0.18, 0)),      # 14
-    ("Shin_R",      14, (0, -0.36, 0),       "shin.stl",      7,    (0, -0.17, 0)),      # 15
-    ("Foot_R",      15, (0, -0.34, 0),       "foot.stl",      None, (0, -0.025, 0.04)),  # 16
+    ("Shoulder_L",   2, (-0.13, 0.28, 0),    None,             8,    (0, 0, 0)),         # 5 左肩（S8，实时读；virdyn恒Q，纯旋转支点）
+    ("UpperArm_L",   5, (0, 0, 0),           "upper_arm.stl", 10,   (0, -0.12, 0)),      # 6
+    ("ForeArm_L",    6, (0, -0.24, 0),       "forearm.stl",   12,   (0, -0.11, 0)),      # 7
+    ("Hand_L",       7, (0, -0.22, 0),       "hand.stl",      None, (0, -0.028, 0)),     # 8
+    ("Shoulder_R",   2, (0.13, 0.28, 0),     None,             9,    (0, 0, 0)),         # 9 右肩（S9，实时读；virdyn恒Q，纯旋转支点）
+    ("UpperArm_R",   9, (0, 0, 0),           "upper_arm.stl", 11,   (0, -0.12, 0)),      # 10
+    ("ForeArm_R",   10, (0, -0.24, 0),       "forearm.stl",   13,   (0, -0.11, 0)),      # 11
+    ("Hand_R",      11, (0, -0.22, 0),       "hand.stl",      None, (0, -0.028, 0)),     # 12
+    ("Thigh_L",      1, (-0.06, -0.05, 0),   "thigh.stl",     4,    (0, -0.18, 0)),      # 13
+    ("Shin_L",      13, (0, -0.36, 0),       "shin.stl",      6,    (0, -0.17, 0)),      # 14
+    ("Foot_L",      14, (0, -0.34, 0),       "foot.stl",      None, (0, -0.025, 0.04)),  # 15
+    ("Thigh_R",      1, (0.06, -0.05, 0),    "thigh.stl",     5,    (0, -0.18, 0)),      # 16
+    ("Shin_R",      16, (0, -0.36, 0),       "shin.stl",      7,    (0, -0.17, 0)),      # 17
+    ("Foot_R",      17, (0, -0.34, 0),       "foot.stl",      None, (0, -0.025, 0.04)),  # 18
 ]
 
 
@@ -979,7 +981,7 @@ class Qt3DSkeletonWidget(QWidget):
         UPWARD_PARENTS = {'Spine', 'Neck'}
         # 连接在父顶部的子骨骼
         # Spine/Neck向上延伸；UpperArm从肩部开始（模型向下延伸）；Head连接在Neck顶部
-        TOP_ATTACH_CHILDREN = {'Spine', 'Neck', 'UpperArm_L', 'UpperArm_R', 'Head'}
+        TOP_ATTACH_CHILDREN = {'Spine', 'Neck', 'Shoulder_L', 'Shoulder_R', 'UpperArm_L', 'UpperArm_R', 'Head'}
         CENTERED_CHILDREN = {'Pelvis'}       # 居中的子骨骼，连接在父中心
         # 手臂微调：UpperArm连接在Spine顶部往下一点点（肩部上方与手臂上方平齐）
         ARM_HEIGHT_OFFSET = 0.055
@@ -988,19 +990,21 @@ class Qt3DSkeletonWidget(QWidget):
             (0, 2),    # Hips -> Spine (向上，Spine在Hips顶部)
             (2, 3),    # Spine -> Neck (向上)
             (3, 4),    # Neck -> Head (向上)
-            (2, 5),    # Spine -> UpperArm_L (向上，上臂在Spine顶部)
-            (2, 8),    # Spine -> UpperArm_R (向上)
-            (5, 6),    # UpperArm_L -> ForeArm_L (向下)
-            (6, 7),    # ForeArm_L -> Hand_L (向下)
-            (8, 9),    # UpperArm_R -> ForeArm_R (向下)
-            (9, 10),   # ForeArm_R -> Hand_R (向下)
+            (2, 5),    # Spine -> Shoulder_L (向上，肩在Spine顶部)
+            (5, 6),    # Shoulder_L -> UpperArm_L (向下)
+            (6, 7),    # UpperArm_L -> ForeArm_L (向下)
+            (7, 8),    # ForeArm_L -> Hand_L (向下)
+            (2, 9),    # Spine -> Shoulder_R (向上)
+            (9, 10),   # Shoulder_R -> UpperArm_R (向下)
+            (10, 11),  # UpperArm_R -> ForeArm_R (向下)
+            (11, 12),  # ForeArm_R -> Hand_R (向下)
             (0, 1),    # Hips -> Pelvis (居中)
-            (1, 11),   # Pelvis -> Thigh_L (向下，大腿在Pelvis底部)
-            (1, 14),   # Pelvis -> Thigh_R (向下)
-            (11, 12),  # Thigh_L -> Shin_L (向下)
-            (12, 13),  # Shin_L -> Foot_L (向下)
-            (14, 15),  # Thigh_R -> Shin_R (向下)
-            (15, 16),  # Shin_R -> Foot_R (向下)
+            (1, 13),   # Pelvis -> Thigh_L (向下，大腿在Pelvis底部)
+            (1, 16),   # Pelvis -> Thigh_R (向下)
+            (13, 14),  # Thigh_L -> Shin_L (向下)
+            (14, 15),  # Shin_L -> Foot_L (向下)
+            (16, 17),  # Thigh_R -> Shin_R (向下)
+            (17, 18),  # Shin_R -> Foot_R (向下)
         ]
         for parent_idx, child_idx in parent_child_pairs:
             parent_bone = self.bones[parent_idx]
@@ -1043,7 +1047,7 @@ class Qt3DSkeletonWidget(QWidget):
         # 根据人偶整体高度动态调整Hips的Y位置，让脚刚好在地面上方
         # 计算脚的最低世界Y坐标（累加所有offset，包括Hips的offset）
         min_foot_y = 999.0
-        for foot_idx in [13, 16]:
+        for foot_idx in [15, 18]:
             foot_bone = self.bones[foot_idx]
             # 累加从Foot到Hips的所有offset Y（Hips的offset已经包含了基准高度）
             total_y = 0
@@ -1364,7 +1368,26 @@ class Qt3DSkeletonWidget(QWidget):
                 else:
                     # B方案：Spine（躯干）不再吃肩部传感器S8/S9（那是肩关节转角，不是躯干）。
                     # 躯干姿态由根节点Hips(S1)经层级传导而来；这里固定为0，只做纵向连接。
-                    # 肩部动作由UpperArm分支叠加S8/S9独立展示（见UpperArm_L/R分支）。
+                    # 肩部动作由Shoulder分支独立读S8/S9展示（见Shoulder_L/R分支）。
+                    rel_rot = QQuaternion()
+            elif bone.name == 'Shoulder_L':
+                # 方案A：左肩独立关节。实时读S8（前平举主转在肩S8，绕人体Y约90°）；
+                # virdyn retarget时Spine已用S8/S9平均，肩不再叠加，保持原播放行为。
+                if self._bvh_mode and self._bvh_retarget:
+                    rel_rot = QQuaternion()
+                elif 8 in self._angles:
+                    y, x, z = self._angles[8]
+                    rel_rot = euler_to_quaternion(y, x, z)
+                else:
+                    rel_rot = QQuaternion()
+            elif bone.name == 'Shoulder_R':
+                # 方案A：右肩独立关节，实时读S9。
+                if self._bvh_mode and self._bvh_retarget:
+                    rel_rot = QQuaternion()
+                elif 9 in self._angles:
+                    y, x, z = self._angles[9]
+                    rel_rot = euler_to_quaternion(y, x, z)
+                else:
                     rel_rot = QQuaternion()
             elif bone.name == 'Thigh_L':
                 # 左大腿：用传感器4（左大腿）
@@ -1390,9 +1413,8 @@ class Qt3DSkeletonWidget(QWidget):
                         rel_rot = QQuaternion()
                 elif 12 in self._angles:
                     y, x, z = self._angles[12]
-                    # 方案G：小臂共轭 T^-1*q*T(T=Rz(-90))，使小臂前屈=绕人体Y(纯前屈)。
-                    _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), -90)
-                    rel_rot = _T.conjugated() * euler_to_quaternion(y, x, z) * _T
+                    # 移除方案G共轭T(Rz(-90))(垂臂锁水平根因)，与retarget一致：直接用人体坐标 euler(y,x,z)
+                    rel_rot = euler_to_quaternion(y, x, z)
                 else:
                     rel_rot = QQuaternion()
             elif bone.name == 'ForeArm_R':
@@ -1405,9 +1427,8 @@ class Qt3DSkeletonWidget(QWidget):
                         rel_rot = QQuaternion()
                 elif 13 in self._angles:
                     y, x, z = self._angles[13]
-                    # 方案G：右臂小臂共轭 T^-1*q*T(T=Rz(+90))。
-                    _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), 90)
-                    rel_rot = _T.conjugated() * euler_to_quaternion(y, x, z) * _T
+                    # 移除方案G共轭T(Rz(+90))(垂臂锁水平根因)，与retarget一致：直接用人体坐标 euler(y,x,z)
+                    rel_rot = euler_to_quaternion(y, x, z)
                 else:
                     rel_rot = QQuaternion()
             elif bone.name == 'UpperArm_L':
@@ -1420,14 +1441,12 @@ class Qt3DSkeletonWidget(QWidget):
                     else:
                         rel_rot = QQuaternion()
                 else:
-                    # 方案G：上臂含 tpose_rot T=Rz(-90)，使offset链/雪杖跟随水平T-pose基准。
-                    # 固件输出标准euler(ey,ex,ez)，用e2q(y,x,z)。
-                    q_arm = QQuaternion()
+                    # 移除方案G遗留 T=Rz(-90)(垂臂锁水平根因)，与retarget一致：直接用人体坐标 euler(y,x,z)
                     if 10 in self._angles:
                         y, x, z = self._angles[10]
-                        q_arm = euler_to_quaternion(y, x, z)
-                    _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), -90)
-                    rel_rot = q_arm * _T
+                        rel_rot = euler_to_quaternion(y, x, z)
+                    else:
+                        rel_rot = QQuaternion()
             elif bone.name == 'UpperArm_R':
                 if self._bvh_mode and self._bvh_retarget:
                     # virdyn 重定向：直接用人体坐标 euler(y,x,z)，与备份版本一致
@@ -1437,13 +1456,12 @@ class Qt3DSkeletonWidget(QWidget):
                     else:
                         rel_rot = QQuaternion()
                 else:
-                    # 方案G：右臂上臂含 tpose_rot T=Rz(+90)，同左。
-                    q_arm = QQuaternion()
+                    # 移除方案G遗留 T=Rz(+90)(垂臂锁水平根因)，与retarget一致：直接用人体坐标 euler(y,x,z)
                     if 11 in self._angles:
                         y, x, z = self._angles[11]
-                        q_arm = euler_to_quaternion(y, x, z)
-                    _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), 90)
-                    rel_rot = q_arm * _T
+                        rel_rot = euler_to_quaternion(y, x, z)
+                    else:
+                        rel_rot = QQuaternion()
             elif bone.sensor_id and bone.sensor_id in self._angles:
                 y, x, z = self._angles[bone.sensor_id]
                 if self._bvh_mode and self._bvh_retarget:

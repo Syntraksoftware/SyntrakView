@@ -14,6 +14,7 @@ CMD_LIST_DIR = 0x03
 CMD_FILE_SELECT = 0x04
 CMD_FILE_UPLOAD = 0x05
 CMD_FILE_DELETE = 0x06
+CMD_DELETE_DIR = 0x0B
 CMD_SAVE_REMARK = 0x09
 
 
@@ -75,6 +76,7 @@ class BvhFileManagerDialog(QDialog):
         """)
 
         self.current_path: str = "/sdcard/Syntrak_records"
+        self._pending_dir: Optional[QTreeWidgetItem] = None  # 按需加载：等待拉取的目录节点
         self._selected_bvh_fullpath: Optional[str] = None
 
         # 下载管理器（支持断点续传、多任务、暂停/继续）
@@ -267,6 +269,7 @@ class BvhFileManagerDialog(QDialog):
         self.label_selected_file.setText("No file selected")
 
     def refresh_dir(self):
+        self._pending_dir = None
         self.clear_file_tree()
         payload = self.current_path.encode("utf-8")
         pkt = self._build_cmd_pkt(CMD_LIST_DIR, payload)
@@ -282,6 +285,19 @@ class BvhFileManagerDialog(QDialog):
         except Exception as e:
             self.sig_log.emit(f"[FileMgr] JSON parse error: {e}")
             self.label_status.setText("Failed to parse file list")
+            return
+
+        if self._pending_dir is not None:
+            # 按需加载：把返回的 items 挂到等待的目录节点
+            parent = self._pending_dir
+            self._pending_dir = None
+            items = data.get("items", [])
+            self._build_tree_items(items, parent)
+            parent.setData(0, Qt.ItemDataRole.UserRole + 1, 1)
+            self.tree.expandItem(parent)
+            count = self._count_items(items)
+            self.label_status.setText(f"Loaded {count} items")
+            self.sig_log.emit(f"[FileMgr] lazy loaded {parent.text(0)}, {count} items")
             return
 
         if "path" in data:
@@ -319,9 +335,8 @@ class BvhFileManagerDialog(QDialog):
             if itype == "dir":
                 tree_item.setIcon(0, self.icon_folder)
                 tree_item.setData(0, Qt.ItemDataRole.UserRole, "dir")
-                children = item.get("children", [])
-                if children:
-                    self._build_tree_items(children, tree_item)
+                # 按需加载：children 不预递归填充，点开时再发 CMD_LIST_DIR 拉取
+                tree_item.setData(0, Qt.ItemDataRole.UserRole + 1, 0)  # 0=未加载
             else:
                 tree_item.setIcon(0, self.icon_bvh)
                 tree_item.setData(0, Qt.ItemDataRole.UserRole, "bvh")
@@ -340,13 +355,23 @@ class BvhFileManagerDialog(QDialog):
 
     # ==================== 文件选择 & 备注 ====================
     def _on_item_clicked(self, item: QTreeWidgetItem, col):
-        """单击文件夹展开/折叠"""
+        """单击文件夹：未加载则按需拉取，已加载则展开/折叠"""
         item_type = item.data(0, Qt.ItemDataRole.UserRole)
-        if item_type == "dir":
-            if item.isExpanded():
-                self.tree.collapseItem(item)
-            else:
-                self.tree.expandItem(item)
+        if item_type != "dir":
+            return
+        loaded = item.data(0, Qt.ItemDataRole.UserRole + 1)
+        if not loaded:
+            path = self._get_item_full_path(item)
+            self._pending_dir = item
+            pkt = self._build_cmd_pkt(CMD_LIST_DIR, path.encode("utf-8"))
+            self.sig_send_ble_cmd.emit(pkt)
+            self.sig_log.emit(f"[FileMgr] lazy load dir: {path}")
+            self.label_status.setText(f"Loading {path}...")
+            return
+        if item.isExpanded():
+            self.tree.collapseItem(item)
+        else:
+            self.tree.expandItem(item)
 
     def _on_item_double_click(self, item: QTreeWidgetItem, col):
         item_type = item.data(0, Qt.ItemDataRole.UserRole)
@@ -414,15 +439,34 @@ class BvhFileManagerDialog(QDialog):
     def _on_delete(self):
         item = self.tree.currentItem()
         if not item:
-            QMessageBox.warning(self, "Tips", "Please select a file to delete")
+            QMessageBox.warning(self, "Tips", "Please select a file or folder to delete")
             return
         item_type = item.data(0, Qt.ItemDataRole.UserRole)
+        fullpath = self._get_item_full_path(item)
+
+        # 文件夹删除：递归删除该目录下所有.bvh/.des文件并删除目录
+        if item_type == "dir":
+            ret = QMessageBox.question(
+                self, "Confirm Delete Folder",
+                f"Delete folder:\n{item.text(0)}\n\n"
+                f"All .bvh and .des files under {fullpath} will be permanently removed.\nContinue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if ret != QMessageBox.StandardButton.Yes:
+                return
+            pkt = self._build_cmd_pkt(CMD_DELETE_DIR, fullpath.encode("utf-8"))
+            self.sig_send_ble_cmd.emit(pkt)
+            self.sig_log.emit(f"[FileMgr] send CMD_DELETE_DIR: {fullpath}")
+            self.label_status.setText(f"Deleting folder: {item.text(0)}")
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(500, self.refresh_dir)
+            return
+
         if item_type != "bvh":
-            QMessageBox.warning(self, "Tips", "Only .bvh files can be deleted")
+            QMessageBox.warning(self, "Tips", "Only .bvh files or folders can be deleted")
             return
 
         fname = item.text(0)
-        fullpath = self._get_item_full_path(item)
         ret = QMessageBox.question(
             self, "Confirm Delete",
             f"Delete file:\n{fname}\n\nThis will also delete the associated .des remark file.\nContinue?",
