@@ -54,8 +54,8 @@ DEFAULT_AVATAR = 'skier_pro'
 # ===== 上位机构建版本标识：每次代码修改务必更新（格式 HOSTYYYYMMDD_HHMM），
 # 打印在所有 log（angle_log.txt / console）行首，用于与固件 FW_BUILD_TAG、BLE frame_cnt 对齐，
 # 避免"log 与代码版本不对应"。
-# 本次=版本对齐: 固件FW20261030_1549(BVH头/帧ZXY业界标准对齐+PIPE raw+s_qcorr), 上位机同步1549 =====
-HOST_BUILD_TAG = "HOST20261104_1120"
+# 本次=显示修改: 初始与BLE实时一致, 全部mesh(含滑雪板)保持单位(不转)朝前, 不做Y180交换; 仅virdyn重定向保留Y180
+HOST_BUILD_TAG = "HOST20261104_1417"
 
 # 各个人偶的配色方案：骨骼名 -> (R,G,B)
 AVATAR_COLORS = {
@@ -1526,36 +1526,24 @@ class Qt3DSkeletonWidget(QWidget):
                     else:
                         bone.mesh_transform.setTranslation(bone.model_offset)
                 else:
-                    # 实时BLE朝前：躯干/头/脚绕Y180；Hand_R镜像(与左手对称)；其余(手臂非Hand_R/腿)单位
-                    if bone.name in FACE_MESHES:
-                        bone.mesh_transform.setRotation(
-                            QQuaternion.fromAxisAndAngle(QVector3D(0, 1, 0), 180))
-                        if bone.name in ('Foot_L', 'Foot_R'):
-                            bone.mesh_transform.setTranslation(QVector3D(
-                                bone.model_offset.x(), bone.model_offset.y(), -bone.model_offset.z()))
-                        else:
-                            bone.mesh_transform.setTranslation(bone.model_offset)
-                    elif bone.name == 'Hand_R':
-                        bone.mesh_transform.setRotation(
-                            QQuaternion.fromAxisAndAngle(QVector3D(0, 1, 0), 180))
-                        bone.mesh_transform.setTranslation(bone.model_offset)
-                    else:
-                        bone.mesh_transform.setRotation(QQuaternion())
-                        bone.mesh_transform.setTranslation(bone.model_offset)
+                    # 初始与BLE实时一致：全部mesh保持单位(不转)朝前——用户确认此位姿(含左右)为正确，不做Y180交换；
+                    # 仅virdyn重定向(retarget)走上方ROTATE_MESHES分支保留Y180
+                    bone.mesh_transform.setRotation(QQuaternion())
+                    bone.mesh_transform.setTranslation(bone.model_offset)
 
         # Save per-bone rel_rot for next frame's gimbal-lock continuity
         self._prev_rel_rot = [bone.joint_transform.rotation() for bone in self.bones]
 
         # 雪杖已挂到前臂/手部骨骼下，自动跟随手臂旋转，无需手动更新
 
-        # 滑雪板：实时BLE朝前(−Z)与virdyn一致，绕Y轴180度并Z偏移取反（保持脚在滑雪板上的位置）
+        # 滑雪板：初始与BLE实时保持单位朝前(脚下偏移+0.2不取反)；仅virdyn重定向绕Y180并Z取反
         for ski_t in self._ski_transforms:
             if self._bvh_mode and self._bvh_retarget:
                 ski_t.setRotation(QQuaternion.fromAxisAndAngle(QVector3D(0, 1, 0), 180))
                 ski_t.setTranslation(QVector3D(0, -0.05, -0.2))  # Z取反
             else:
-                ski_t.setRotation(QQuaternion.fromAxisAndAngle(QVector3D(0, 1, 0), 180))
-                ski_t.setTranslation(QVector3D(0, -0.05, -0.2))
+                ski_t.setRotation(QQuaternion())
+                ski_t.setTranslation(QVector3D(0, -0.05, 0.2))
 
 
     # ==================== 3D视图相机控制 ====================
