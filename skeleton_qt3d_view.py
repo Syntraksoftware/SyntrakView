@@ -54,8 +54,8 @@ DEFAULT_AVATAR = 'skier_pro'
 # ===== 上位机构建版本标识：每次代码修改务必更新（格式 HOSTYYYYMMDD_HHMM），
 # 打印在所有 log（angle_log.txt / console）行首，用于与固件 FW_BUILD_TAG、BLE frame_cnt 对齐，
 # 避免"log 与代码版本不对应"。
-# 本次=显示修改: 初始与BLE实时一致, 全部mesh(含滑雪板)保持单位(不转)朝前, 不做Y180交换; 仅virdyn重定向保留Y180
-HOST_BUILD_TAG = "HOST20261104_1417"
+# 本次=手臂方向修正: BLE实时手臂(Shoulder/UpperArm/ForeArm)pitch(x)+roll(z)取负, 修正手往上显示往下+拧转反; 仅非virdyn路径
+HOST_BUILD_TAG = "HOST20261104_1430"
 
 # 各个人偶的配色方案：骨骼名 -> (R,G,B)
 AVATAR_COLORS = {
@@ -1377,7 +1377,7 @@ class Qt3DSkeletonWidget(QWidget):
                     rel_rot = QQuaternion()
                 elif 8 in self._angles:
                     y, x, z = self._angles[8]
-                    rel_rot = euler_to_quaternion(y, x, z)
+                    rel_rot = euler_to_quaternion(y, -x, -z)
                 else:
                     rel_rot = QQuaternion()
             elif bone.name == 'Shoulder_R':
@@ -1386,7 +1386,7 @@ class Qt3DSkeletonWidget(QWidget):
                     rel_rot = QQuaternion()
                 elif 9 in self._angles:
                     y, x, z = self._angles[9]
-                    rel_rot = euler_to_quaternion(y, x, z)
+                    rel_rot = euler_to_quaternion(y, -x, -z)
                 else:
                     rel_rot = QQuaternion()
             elif bone.name == 'Thigh_L':
@@ -1415,7 +1415,7 @@ class Qt3DSkeletonWidget(QWidget):
                     y, x, z = self._angles[12]
                     # T-pose基准修正：默认骨架ForeArm沿-Y(下垂)，T=Rz(-90)把它转到水平T-pose；垂臂需固件侧修
                     _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), -90)
-                    rel_rot = _T.conjugated() * euler_to_quaternion(y, x, z) * _T
+                    rel_rot = _T.conjugated() * euler_to_quaternion(y, -x, -z) * _T
                 else:
                     rel_rot = QQuaternion()
             elif bone.name == 'ForeArm_R':
@@ -1430,7 +1430,7 @@ class Qt3DSkeletonWidget(QWidget):
                     y, x, z = self._angles[13]
                     # T-pose基准修正：默认骨架ForeArm沿-Y(下垂)，T=Rz(+90)把它转到水平T-pose；垂臂需固件侧修
                     _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), 90)
-                    rel_rot = _T.conjugated() * euler_to_quaternion(y, x, z) * _T
+                    rel_rot = _T.conjugated() * euler_to_quaternion(y, -x, -z) * _T
                 else:
                     rel_rot = QQuaternion()
             elif bone.name == 'UpperArm_L':
@@ -1447,7 +1447,7 @@ class Qt3DSkeletonWidget(QWidget):
                     q_arm = QQuaternion()
                     if 10 in self._angles:
                         y, x, z = self._angles[10]
-                        q_arm = euler_to_quaternion(y, x, z)
+                        q_arm = euler_to_quaternion(y, -x, -z)
                     _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), -90)
                     rel_rot = q_arm * _T
             elif bone.name == 'UpperArm_R':
@@ -1463,7 +1463,7 @@ class Qt3DSkeletonWidget(QWidget):
                     q_arm = QQuaternion()
                     if 11 in self._angles:
                         y, x, z = self._angles[11]
-                        q_arm = euler_to_quaternion(y, x, z)
+                        q_arm = euler_to_quaternion(y, -x, -z)
                     _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), 90)
                     rel_rot = q_arm * _T
             elif bone.sensor_id and bone.sensor_id in self._angles:
