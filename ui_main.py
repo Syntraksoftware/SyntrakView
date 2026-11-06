@@ -3,7 +3,7 @@ import os
 import configparser
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QListWidget, QListWidgetItem, QTextEdit, QLabel, QFrame, QFormLayout, QProgressBar,
+    QListWidget, QListWidgetItem, QTextEdit, QPlainTextEdit, QLabel, QFrame, QFormLayout, QProgressBar,
     QDialog, QDialogButtonBox, QFileDialog, QSlider, QCheckBox, QComboBox, QScrollArea, QGridLayout, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QSize, QTimer
@@ -116,7 +116,7 @@ class MainWindow(QWidget):
             QListWidget::item { padding: 6px; border-radius: 3px; color: #2c3e50; }
             QListWidget::item:hover { background-color: #d6eaf8; color: #1a5276; }
             QListWidget::item:selected { background-color: #1a5276; color: #ffffff; font-weight: bold; }
-            QTextEdit {
+            QTextEdit, QPlainTextEdit {
                 border: 1px solid #bdc3c7; border-radius: 4px; padding: 6px;
                 background-color: white; color: #2c3e50; font-size: 12px;
             }
@@ -271,12 +271,21 @@ class MainWindow(QWidget):
 
         # 设备列表 + 日志
         self.list_devices = QListWidget()
-        self.text_log = QTextEdit()
+        # ponytail: 纯文本+行数上限，旧 QTextEdit 无限增长导致越跑越卡；2000 行不够再调大
+        self.text_log = QPlainTextEdit()
         self.text_log.setReadOnly(True)
+        self.text_log.setMaximumBlockCount(2000)
+
+        # 观察模式(默认)：不勾选=关闭热路径调试print与angle_log.txt；勾选=Debug log
+        import log_util
+        self.chk_debug_log = QCheckBox("Debug log (angle_log.txt + console, slower)")
+        self.chk_debug_log.setChecked(log_util.DEBUG_LOG)
+        self.chk_debug_log.toggled.connect(lambda on: setattr(log_util, "DEBUG_LOG", on))
 
         layout_left.addWidget(QLabel("Device List："))
         layout_left.addWidget(self.list_devices)
         layout_left.addWidget(QLabel("System Log："))
+        layout_left.addWidget(self.chk_debug_log)
         layout_left.addWidget(self.text_log)
 
         # ============ 右侧3D视图（从config读取人偶）============
@@ -634,7 +643,7 @@ class MainWindow(QWidget):
 
     # ==================== 日志输出 ====================
     def append_log(self, msg: str):
-        self.text_log.append("- "+msg)
+        self.text_log.appendPlainText("- "+msg)
         sb = self.text_log.verticalScrollBar()
         sb.setValue(sb.maximum()+2)
 

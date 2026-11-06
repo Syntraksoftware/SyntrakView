@@ -3,6 +3,7 @@ BVH文件解析和播放器
 支持解析BVH文件的关节层级和运动数据，提供逐帧播放接口
 """
 import numpy as np
+import log_util
 from PyQt6.QtGui import QQuaternion, QVector3D
 
 
@@ -469,7 +470,7 @@ class BVHPlayer:
         if not hasattr(self, '_retarget_debug_count'):
             self._retarget_debug_count = 0
         self._retarget_debug_count += 1
-        if self._retarget_debug_count % 60 == 0:
+        if log_util.DEBUG_LOG and self._retarget_debug_count % 60 == 0:
             print(f'[Retarget Debug] frame={frame_idx}, keys={sorted(result.keys())}, sample={list(result.items())[:3]}')
         return result
 

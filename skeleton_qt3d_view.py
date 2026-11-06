@@ -6,6 +6,7 @@ Skeleton3DView - Qt3D + STL 3D人偶组件
 import os
 import math
 import numpy as np
+import log_util
 from stl import mesh as stl_mesh
 from PyQt6.QtCore import Qt, QUrl, QTimer, pyqtSignal
 from PyQt6.QtGui import QVector3D, QQuaternion, QColor, QIcon
@@ -1313,7 +1314,7 @@ class Qt3DSkeletonWidget(QWidget):
                 if not hasattr(self, '_bvh_debug_count'):
                     self._bvh_debug_count = 0
                 self._bvh_debug_count += 1
-                if self._bvh_debug_count % 60 == 0:
+                if log_util.DEBUG_LOG and self._bvh_debug_count % 60 == 0:
                     print(f"[BVH Debug] frame={self._bvh_player.current_frame}, "
                           f"playing={self._bvh_player.playing}, "
                           f"angles_keys={sorted(bvh_angles.keys())}, "
@@ -1325,7 +1326,7 @@ class Qt3DSkeletonWidget(QWidget):
         if not hasattr(self, '_all_dbg'):
             self._all_dbg = 0
         self._all_dbg += 1
-        if self._all_dbg % 30 == 0 and self._angles:
+        if log_util.DEBUG_LOG and self._all_dbg % 30 == 0 and self._angles:
             names = {1:'S1腰',2:'S2左髋',3:'S3右髋',4:'S4左大腿',5:'S5右大腿',
                      6:'S6左小腿',7:'S7右小腿',8:'S8左肩',9:'S9右肩',10:'S10左上臂',
                      11:'S11右上臂',12:'S12左前臂',13:'S13右前臂'}
@@ -1360,7 +1361,7 @@ class Qt3DSkeletonWidget(QWidget):
                 if not hasattr(self, '_pelvis_dbg'):
                     self._pelvis_dbg = 0
                 self._pelvis_dbg += 1
-                if self._pelvis_dbg % 30 == 0:
+                if log_util.DEBUG_LOG and self._pelvis_dbg % 30 == 0:
                     print(f"[Pelvis DBG] keys={sorted(self._angles.keys())}, "
                           f"a2={self._angles.get(2)}, a3={self._angles.get(3)}")
                 if 2 in self._angles and 3 in self._angles:
@@ -1588,7 +1589,7 @@ class Qt3DSkeletonWidget(QWidget):
         self._prev_rel_rot = [bone.joint_transform.rotation() for bone in self.bones]
 
         # [调试] 每30帧打印关键关节实际渲染角度（局部+全局）
-        if self._all_dbg % 30 == 0 and self.bones:
+        if log_util.DEBUG_LOG and self._all_dbg % 30 == 0 and self.bones:
             render_names = {'Hips':'Hips', 'Spine':'Spine', 'UpperArm_L':'UArm_L',
                             'UpperArm_R':'UArm_R', 'ForeArm_L':'FArm_L', 'ForeArm_R':'FArm_R',
                             'Thigh_L':'Thigh_L', 'Thigh_R':'Thigh_R', 'Shin_L':'Shin_L', 'Shin_R':'Shin_R'}

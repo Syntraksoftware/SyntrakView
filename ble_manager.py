@@ -6,6 +6,7 @@ import struct
 from PyQt6.QtCore import QObject, pyqtSignal
 from bleak import BleakScanner, BleakClient
 from bleNotifyReassembler import  BleNotifyReassembler
+import log_util
 #Characteristics
 WRITE_CHAR_UUID = "c0b0a090-8070-6050-4030-2013ddffbbaa" # command
 NOTIFY_REAL_UUID = "c0b0a090-8070-6050-4030-2011ddddbbaa" #
@@ -191,7 +192,7 @@ class BleManager(QObject):
                 if not hasattr(self, '_angle_pkt_count'):
                     self._angle_pkt_count = 0
                 self._angle_pkt_count += 1
-                if self._angle_pkt_count <= 10 or self._angle_pkt_count % 50 == 0:
+                if log_util.DEBUG_LOG and (self._angle_pkt_count <= 10 or self._angle_pkt_count % 50 == 0):
                     print(f"[BLE ANGLE] pkt #{self._angle_pkt_count}, full_len={len(full_pkt)}, payload_len={len(payload)}")
                 if len(payload) >= 166:
                     import struct
@@ -207,10 +208,11 @@ class BleManager(QObject):
                         joint_angles['frame_cnt'] = struct.unpack_from('<I', payload, 166)[0]
                     else:
                         joint_angles['frame_cnt'] = 0
-                    # 调试：打印 S3/S5
-                    s3 = joint_angles.get(3, [0,0,0])
-                    s5 = joint_angles.get(5, [0,0,0])
-                    print(f"[PC RX] pkt#{self._angle_pkt_count} S3=({s3[0]:.1f},{s3[1]:.1f},{s3[2]:.1f}) S5=({s5[0]:.1f},{s5[1]:.1f},{s5[2]:.1f})")
+                    # 调试：打印 S3/S5（每包一行，仅 Debug log 模式）
+                    if log_util.DEBUG_LOG:
+                        s3 = joint_angles.get(3, [0,0,0])
+                        s5 = joint_angles.get(5, [0,0,0])
+                        print(f"[PC RX] pkt#{self._angle_pkt_count} S3=({s3[0]:.1f},{s3[1]:.1f},{s3[2]:.1f}) S5=({s5[0]:.1f},{s5[1]:.1f},{s5[2]:.1f})")
                     self.sig_angle_data.emit(joint_angles)
                 else:
                     print(f"[BLE ANGLE] ERROR: payload too short ({len(payload)}), full_pkt={full_pkt[:20].hex()}")
