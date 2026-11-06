@@ -55,7 +55,7 @@ DEFAULT_AVATAR = 'skier_pro'
 # 打印在所有 log（angle_log.txt / console）行首，用于与固件 FW_BUILD_TAG、BLE frame_cnt 对齐，
 # 避免"log 与代码版本不对应"。
 # 本次=手臂方向修正: BLE实时手臂(Shoulder/UpperArm/ForeArm)pitch(x)+roll(z)取负, 修正手往上显示往下+拧转反; 仅非virdyn路径
-HOST_BUILD_TAG = "HOST20261106_2200"
+HOST_BUILD_TAG = "HOST20261106_2210"
 
 # 各个人偶的配色方案：骨骼名 -> (R,G,B)
 AVATAR_COLORS = {
@@ -1324,6 +1324,22 @@ class Qt3DSkeletonWidget(QWidget):
         # 只取最后50帧（避免太长）
         self._log_frames = frames[-50:]
         print(f"[Log播放] 使用最后 {len(self._log_frames)} 帧")
+
+        # 过滤掉完全静止的帧，只保留有变化的帧（慢动作播放）
+        filtered_frames = []
+        prev_s6 = None
+        for frame in self._log_frames:
+            if 6 in frame['angles']:
+                s6 = frame['angles'][6]
+                if prev_s6 is None or abs(s6[0] - prev_s6[0]) > 5:  # y轴变化超过5°才保留
+                    filtered_frames.append(frame)
+                prev_s6 = s6
+            else:
+                filtered_frames.append(frame)
+
+        self._log_frames = filtered_frames
+        print(f"[Log播放] 过滤后 {len(self._log_frames)} 帧（只保留S6变化>5°的帧）")
+
         print(f"[Log播放] 第一帧角度: {self._log_frames[0]['angles']}")
         print(f"[Log播放] 最后一帧角度: {self._log_frames[-1]['angles']}")
 
@@ -1337,8 +1353,8 @@ class Qt3DSkeletonWidget(QWidget):
         # 开始播放
         self._log_playing = True
         self._log_frame_idx = 0
-        self._log_timer.start(200)  # 每200ms播放一帧（5fps）
-        print(f"[Log播放] 开始播放，共 {len(self._log_frames)} 帧")
+        self._log_timer.start(1000)  # 每1000ms播放一帧（1fps，慢动作）
+        print(f"[Log播放] 开始播放，共 {len(self._log_frames)} 帧，每帧1秒")
 
     def _play_log_frame(self):
         """播放一帧log数据"""
