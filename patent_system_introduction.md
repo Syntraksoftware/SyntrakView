@@ -34,21 +34,23 @@ Furthermore, when playing back recorded motion data (BVH files) produced by thir
 The present invention provides a complete wearable motion capture and visualization system comprising:
 
 ### 3.1 Hardware Subsystem
+
 A distributed IMU sensor network consisting of **13 wearable IMU nodes** mounted on the human body at anatomically defined positions:
 
-| Sensor ID | Body Joint |
-|-----------|-----------|
-| 1 | Waist (Hips) |
-| 2, 3 | Left/Right Hip |
-| 4, 5 | Left/Right Thigh |
-| 6, 7 | Left/Right Calf (Shin) |
-| 8, 9 | Left/Right Shoulder |
-| 10, 11 | Left/Right Upper Arm |
-| 12, 13 | Left/Right Forearm |
+| Sensor ID | Body Joint             |
+| --------- | ---------------------- |
+| 1         | Waist (Hips)           |
+| 2, 3      | Left/Right Hip         |
+| 4, 5      | Left/Right Thigh       |
+| 6, 7      | Left/Right Calf (Shin) |
+| 8, 9      | Left/Right Shoulder    |
+| 10, 11    | Left/Right Upper Arm   |
+| 12, 13    | Left/Right Forearm     |
 
 Each node performs on-board sensor fusion (accelerometer + gyroscope + magnetometer) to output a 3-DOF Euler angle (yaw, pitch, roll) relative to a T-pose calibration reference. All nodes transmit data via **Bluetooth Low Energy (BLE)** at 60 Hz to a host upper-computer.
 
 ### 3.2 Upper-Computer Software Subsystem
+
 A desktop application (Python / PyQt6 / Qt3D) that provides:
 
 - **Real-time BLE data reception and 3D skeletal rendering** at 60 fps
@@ -83,16 +85,16 @@ This decoupling ensures that lower-body movements (pelvis rotation) do not corru
 For third-party BVH files with arbitrary joint counts and naming conventions (e.g., Virdyn's 61-joint format), the system performs:
 
 1. **Iterative world-rotation accumulation**: Starting from the BVH root node, the algorithm traverses the joint hierarchy iteratively (not recursively, to prevent stack overflow) and accumulates local rotations into world-space quaternions for every joint.
-
 2. **Keyword-based joint extraction**: Using configurable keyword lists (e.g., `['upperarm_left', 'leftupperarm', 'leftarm']`), the system locates the source BVH joints corresponding to each target avatar joint, regardless of naming convention.
-
 3. **Inverse kinematic decomposition**: The relative rotation for each target bone is computed as:
+
    ```
    R_rel = R_parent_world⁻¹ × R_target_world
    ```
-   This decomposes the source BVH's world rotations back into local rotations that fit the target avatar's parent-child hierarchy.
 
+   This decomposes the source BVH's world rotations back into local rotations that fit the target avatar's parent-child hierarchy.
 4. **T-pose reference alignment**: Because the target avatar's default bone orientation (e.g., upper arm pointing downward in Y−) differs from the source BVH's T-pose orientation (e.g., upper arm extending sideways in X), a per-bone T-pose correction quaternion is applied:
+
    ```
    R_rel_target = R_tpose⁻¹ × R_parent_world⁻¹ × R_target_world × R_tpose
    ```
@@ -112,7 +114,6 @@ This three-tier approach ensures left-right consistency across all input sources
 The system uses a two-step calibration procedure:
 
 1. **T-pose calibration**: The user stands with arms extended horizontally; the system records each IMU's absolute orientation as a zero-reference. This establishes the vertical (gravity) axis and left-right symmetry axis.
-
 2. **Forward-reach calibration**: The user extends both arms forward (parallel to the ground, facing forward). The rotational difference between T-pose and forward-reach defines the anterior-posterior axis, resolving the inherent ambiguity of T-pose alone (which cannot distinguish sensor twist around the bone's long axis).
 
 ### 4.5 Procedural Avatar Mesh Generation
@@ -162,17 +163,7 @@ The BVH parser includes production-hardened robustness:
 
 ## 6. Technical Advantages
 
-| Feature | Optical Systems | Inertial Suits | Present Invention |
-|---------|----------------|----------------|-------------------|
-| On-snow portability | No | Yes | Yes |
-| Full-body articulation (13 joints) | Yes | Yes | Yes |
-| Third-party BVH playback | No | Limited | Yes (61-joint → 17-node retarget) |
-| Auto left-right correction | N/A | No | Yes (3-tier, context-aware) |
-| T-pose + forward-reach calibration | N/A | T-pose only | T-pose + AP disambiguation |
-| Parametric avatar generation | No | Limited | Yes (20+ procedural avatars) |
-| Ski equipment rendering | No | No | Yes (skis + poles) |
-| BLE wireless (no tether) | N/A | Yes | Yes |
-| Low-cost (consumer IMUs) | No | No | Yes |
+* [ ] FeatureOptical SystemsInertial SuitsPresent InventionOn-snow portabilityNoYesYesFull-body articulation (13 joints)YesYesYesThird-party BVH playbackNoLimitedYes (61-joint → 17-node retarget)Auto left-right correctionN/ANoYes (3-tier, context-aware)T-pose + forward-reach calibrationN/AT-pose onlyT-pose + AP disambiguationParametric avatar generationNoLimitedYes (20+ procedural avatars)Ski equipment renderingNoNoYes (skis + poles)BLE wireless (no tether)N/AYesYesLow-cost (consumer IMUs)NoNoYes
 
 ---
 
