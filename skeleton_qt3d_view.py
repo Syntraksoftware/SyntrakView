@@ -55,7 +55,7 @@ DEFAULT_AVATAR = 'skier_pro'
 # 打印在所有 log（angle_log.txt / console）行首，用于与固件 FW_BUILD_TAG、BLE frame_cnt 对齐，
 # 避免"log 与代码版本不对应"。
 # 本次=手臂方向修正: BLE实时手臂(Shoulder/UpperArm/ForeArm)pitch(x)+roll(z)取负, 修正手往上显示往下+拧转反; 仅非virdyn路径
-HOST_BUILD_TAG = "HOST20261105_1430"
+HOST_BUILD_TAG = "HOST20261106_2045"
 
 # 各个人偶的配色方案：骨骼名 -> (R,G,B)
 AVATAR_COLORS = {
@@ -653,6 +653,31 @@ def euler_to_quaternion(yaw_deg, pitch_deg, roll_deg):
     qy = sy * cx * cz - cy * sx * sz
     qz = cy * cx * sz - sy * sx * cz
     return QQuaternion(w, qx, qy, qz)
+
+
+def quaternion_to_euler_yxz(q):
+    """四元数转YXZ欧拉角(度)，与euler_to_quaternion互为逆运算"""
+    w, x, y, z = q.scalar(), q.x(), q.y(), q.z()
+    # 从四元数提取旋转矩阵
+    m00 = 1 - 2*(y*y + z*z)
+    m01 = 2*(x*y - w*z)
+    m02 = 2*(x*z + w*y)
+    m10 = 2*(x*y + w*z)
+    m11 = 1 - 2*(x*x + z*z)
+    m12 = 2*(y*z - w*x)
+    m20 = 2*(x*z - w*y)
+    m21 = 2*(y*z + w*x)
+    m22 = 1 - 2*(x*x + y*y)
+    # YXZ顺序：R = Ry * Rx * Rz
+    # m12 = -sin(x) → pitch = -asin(m12)
+    sin_x = -m12
+    sin_x = max(-1, min(1, sin_x))
+    pitch = math.degrees(math.asin(sin_x))
+    # m02 = sin(y)*cos(x), m22 = cos(y)*cos(x) → yaw = atan2(m02, m22)
+    yaw = math.degrees(math.atan2(m02, m22))
+    # m10 = cos(x)*sin(z), m11 = cos(x)*cos(z) → roll = atan2(m10, m11)
+    roll = math.degrees(math.atan2(m10, m11))
+    return yaw, pitch, roll
 
 
 def _wrap_to_180_diff(a, b):
@@ -1340,13 +1365,14 @@ class Qt3DSkeletonWidget(QWidget):
                           f"a2={self._angles.get(2)}, a3={self._angles.get(3)}")
                 if 2 in self._angles and 3 in self._angles:
                     y, x, z = average_euler(self._angles[2], self._angles[3])
-                    rel_rot = euler_to_quaternion(y, x, z)
+                    # x轴取反：前后方向修正
+                    rel_rot = euler_to_quaternion(y, -x, z)
                 elif 2 in self._angles:
                     y, x, z = self._angles[2]
-                    rel_rot = euler_to_quaternion(y, x, z)
+                    rel_rot = euler_to_quaternion(y, -x, z)
                 elif 3 in self._angles:
                     y, x, z = self._angles[3]
-                    rel_rot = euler_to_quaternion(y, x, z)
+                    rel_rot = euler_to_quaternion(y, -x, z)
                 else:
                     rel_rot = QQuaternion()
             elif bone.name == 'Spine':
@@ -1396,14 +1422,32 @@ class Qt3DSkeletonWidget(QWidget):
                     y, x, z = self._angles[4]
                 else:
                     y, x, z = 0, 0, 0
-                rel_rot = euler_to_quaternion(y, x, z)
+                # x轴取反：前后方向修正（向前抬起=正方向）
+                rel_rot = euler_to_quaternion(y, -x, z)
             elif bone.name == 'Thigh_R':
                 # 右大腿：用传感器5（右大腿）
                 if 5 in self._angles:
                     y, x, z = self._angles[5]
                 else:
                     y, x, z = 0, 0, 0
-                rel_rot = euler_to_quaternion(y, x, z)
+                # x轴取反：前后方向修正
+                rel_rot = euler_to_quaternion(y, -x, z)
+            elif bone.name == 'Shin_L':
+                # 左小腿：用传感器6（左小腿）
+                if 6 in self._angles:
+                    y, x, z = self._angles[6]
+                else:
+                    y, x, z = 0, 0, 0
+                # 先改回原来的公式，和大腿一样
+                rel_rot = euler_to_quaternion(y, -x, z)
+            elif bone.name == 'Shin_R':
+                # 右小腿：用传感器7（右小腿）
+                if 7 in self._angles:
+                    y, x, z = self._angles[7]
+                else:
+                    y, x, z = 0, 0, 0
+                # x轴取反：前后方向修正
+                rel_rot = euler_to_quaternion(y, -x, z)
             elif bone.name == 'ForeArm_L':
                 if self._bvh_mode and self._bvh_retarget:
                     # virdyn 重定向：直接用人体坐标 euler(y,x,z)，与备份版本一致
@@ -1414,7 +1458,9 @@ class Qt3DSkeletonWidget(QWidget):
                         rel_rot = QQuaternion()
                 elif 12 in self._angles:
                     y, x, z = self._angles[12]
-                    # T-pose基准修正：默认骨架ForeArm沿-Y(下垂)，T=Rz(-90)把它转到水平T-pose；垂臂需固件侧修
+                    # ForeArm是上臂的子节点，固件输出的euler是人体坐标系下的
+                    # 需要共轭变换到上臂坐标系：rel_rot = _T.conjugated() * q_human * _T
+                    # x轴取反（拧转方向修正），z轴取负
                     _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), -90)
                     rel_rot = _T.conjugated() * euler_to_quaternion(y, -x, -z) * _T
                 else:
@@ -1429,7 +1475,9 @@ class Qt3DSkeletonWidget(QWidget):
                         rel_rot = QQuaternion()
                 elif 13 in self._angles:
                     y, x, z = self._angles[13]
-                    # T-pose基准修正：默认骨架ForeArm沿-Y(下垂)，T=Rz(+90)把它转到水平T-pose；垂臂需固件侧修
+                    # ForeArm是上臂的子节点，固件输出的euler是人体坐标系下的
+                    # 需要共轭变换到上臂坐标系：rel_rot = _T.conjugated() * q_human * _T
+                    # x轴取反（拧转方向修正），z轴取负
                     _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), 90)
                     rel_rot = _T.conjugated() * euler_to_quaternion(y, -x, -z) * _T
                 else:
@@ -1444,12 +1492,13 @@ class Qt3DSkeletonWidget(QWidget):
                     else:
                         rel_rot = QQuaternion()
                 else:
-                    # T-pose基准修正：默认骨架上臂沿X轴，T=Rz(-90)把上臂链转到水平T-pose，叠加人体坐标相对旋转
-                    # 注意：新骨骼层级（UpperArm挂Spine下）下不再需要x,z取负号hack
+                    # T-pose基准修正：默认骨架上臂沿-Y(下垂)，T=Rz(-90)把上臂转到水平T-pose向左
+                    # z轴取负：标定后固件输出z符号与上位机渲染约定相反，取负后上下方向正确
+                    # x轴取反：拧转方向修正
                     q_arm = QQuaternion()
                     if 10 in self._angles:
                         y, x, z = self._angles[10]
-                        q_arm = euler_to_quaternion(y, x, z)
+                        q_arm = euler_to_quaternion(y, -x, -z)
                     _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), -90)
                     rel_rot = q_arm * _T
             elif bone.name == 'UpperArm_R':
@@ -1461,12 +1510,13 @@ class Qt3DSkeletonWidget(QWidget):
                     else:
                         rel_rot = QQuaternion()
                 else:
-                    # T-pose基准修正：默认骨架上臂沿X轴，T=Rz(+90)把上臂链转到水平T-pose，叠加人体坐标相对旋转
-                    # 注意：新骨骼层级（UpperArm挂Spine下）下不再需要x,z取负号hack
+                    # T-pose基准修正：默认骨架上臂沿-Y(下垂)，T=Rz(+90)把上臂转到水平T-pose向右
+                    # z轴取负：标定后固件输出z符号与上位机渲染约定相反，取负后上下方向正确
+                    # x轴取反：拧转方向修正
                     q_arm = QQuaternion()
                     if 11 in self._angles:
                         y, x, z = self._angles[11]
-                        q_arm = euler_to_quaternion(y, x, z)
+                        q_arm = euler_to_quaternion(y, -x, -z)
                     _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), 90)
                     rel_rot = q_arm * _T
             elif bone.sensor_id and bone.sensor_id in self._angles:
@@ -1536,6 +1586,43 @@ class Qt3DSkeletonWidget(QWidget):
 
         # Save per-bone rel_rot for next frame's gimbal-lock continuity
         self._prev_rel_rot = [bone.joint_transform.rotation() for bone in self.bones]
+
+        # [调试] 每30帧打印关键关节实际渲染角度（局部+全局）
+        if self._all_dbg % 30 == 0 and self.bones:
+            render_names = {'Hips':'Hips', 'Spine':'Spine', 'UpperArm_L':'UArm_L',
+                            'UpperArm_R':'UArm_R', 'ForeArm_L':'FArm_L', 'ForeArm_R':'FArm_R',
+                            'Thigh_L':'Thigh_L', 'Thigh_R':'Thigh_R', 'Shin_L':'Shin_L', 'Shin_R':'Shin_R'}
+
+            # 先计算所有骨骼的全局变换（从根节点逐级级联）
+            global_rot = []
+            for i, bone in enumerate(self.bones):
+                local_q = bone.joint_transform.rotation()
+                if bone.parent_idx < 0:
+                    # 根节点：全局=局部
+                    global_rot.append(local_q)
+                else:
+                    # 子节点：全局 = 父全局 * 局部
+                    parent_global = global_rot[bone.parent_idx]
+                    global_rot.append(parent_global * local_q)
+
+            render_parts = []
+            for i, bone in enumerate(self.bones):
+                if bone.name in render_names:
+                    # 局部角度（相对于父骨骼）
+                    ly, lx, lz = quaternion_to_euler_yxz(bone.joint_transform.rotation())
+                    # 全局角度（世界坐标系）
+                    gy, gx, gz = quaternion_to_euler_yxz(global_rot[i])
+                    render_parts.append(f"{render_names[bone.name]}:L{ly:.0f}/{lx:.0f}/{lz:.0f}|G{gy:.0f}/{gx:.0f}/{gz:.0f}")
+            render_line = f"[{HOST_BUILD_TAG}] [RENDER] " + " | ".join(render_parts)
+            print(render_line)
+            try:
+                if not hasattr(self, '_angle_log_fh'):
+                    self._angle_log_fh = _open_shared_angle_log(
+                        os.path.join(os.path.dirname(os.path.abspath(__file__)), "angle_log.txt"))
+                self._angle_log_fh.write(render_line + "\n")
+                self._angle_log_fh.flush()
+            except Exception:
+                pass
 
         # 雪杖已挂到前臂/手部骨骼下，自动跟随手臂旋转，无需手动更新
 
