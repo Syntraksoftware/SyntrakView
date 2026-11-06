@@ -55,7 +55,7 @@ DEFAULT_AVATAR = 'skier_pro'
 # 打印在所有 log（angle_log.txt / console）行首，用于与固件 FW_BUILD_TAG、BLE frame_cnt 对齐，
 # 避免"log 与代码版本不对应"。
 # 本次=手臂方向修正: BLE实时手臂(Shoulder/UpperArm/ForeArm)pitch(x)+roll(z)取负, 修正手往上显示往下+拧转反; 仅非virdyn路径
-HOST_BUILD_TAG = "HOST20261106_2045"
+HOST_BUILD_TAG = "HOST20261106_2150"
 
 # 各个人偶的配色方案：骨骼名 -> (R,G,B)
 AVATAR_COLORS = {
@@ -916,6 +916,13 @@ class Qt3DSkeletonWidget(QWidget):
         self._bvh_retarget = False  # 默认直接映射（我们自己的文件），第三方文件可开启重定向
         self._last_update_time = 0
 
+        # Log播放器（新增）
+        self._log_frames = []  # 解析后的log帧数据
+        self._log_playing = False  # 是否正在播放log
+        self._log_frame_idx = 0  # 当前播放到第几帧
+        self._log_timer = QTimer(self)  # 播放定时器
+        self._log_timer.timeout.connect(self._play_log_frame)
+
     def _setup_framegraph(self):
         """在现有frame graph中添加QRenderStateSet，全局禁用背面剔除"""
         from PyQt6.Qt3DRender import QRenderStateSet as _RSSet, QCullFace as _CF
@@ -1265,6 +1272,90 @@ class Qt3DSkeletonWidget(QWidget):
 
     def set_bvh_loop(self, loop):
         self._bvh_player.set_loop(loop)
+
+    # ==================== Log播放控制（新增） ====================
+
+    def _load_and_play_log(self):
+        """加载angle_log.txt并开始播放"""
+        import re
+        log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'angle_log.txt')
+        if not os.path.exists(log_path):
+            print(f"[Log播放] 找不到log文件: {log_path}")
+            return
+
+        print(f"[Log播放] 正在读取: {log_path}")
+        frames = []
+        current_frame = None
+
+        with open(log_path, 'r', encoding='latin-1') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+
+                # 匹配FRAME行
+                frame_match = re.search(r'\[FRAME (\d+)\]', line)
+                if frame_match:
+                    if current_frame is not None:
+                        frames.append(current_frame)
+                    frame_num = int(frame_match.group(1))
+                    current_frame = {
+                        'frame_num': frame_num,
+                        'angles': {}  # sensor_id -> (y, x, z)
+                    }
+                    continue
+
+                # 解析原始角度
+                if current_frame is not None and 'S1' in line:
+                    sensor_pattern = r'S(\d+)[^:]*:([-\d.]+)/([-\d.]+)/([-\d.]+)'
+                    matches = re.findall(sensor_pattern, line)
+                    for match in matches:
+                        sensor_id = int(match[0])
+                        y = float(match[1])
+                        x = float(match[2])
+                        z = float(match[3])
+                        current_frame['angles'][sensor_id] = (y, x, z)
+
+        if current_frame is not None:
+            frames.append(current_frame)
+
+        print(f"[Log播放] 解析到 {len(frames)} 帧")
+        if len(frames) == 0:
+            return
+
+        # 只取最后50帧（避免太长）
+        self._log_frames = frames[-50:]
+        print(f"[Log播放] 使用最后 {len(self._log_frames)} 帧")
+
+        # 开始播放
+        self._log_playing = True
+        self._log_frame_idx = 0
+        self._log_timer.start(200)  # 每200ms播放一帧（5fps）
+        print(f"[Log播放] 开始播放，共 {len(self._log_frames)} 帧")
+
+    def _play_log_frame(self):
+        """播放一帧log数据"""
+        if not self._log_playing or self._log_frame_idx >= len(self._log_frames):
+            return
+
+        frame = self._log_frames[self._log_frame_idx]
+        print(f"[Log播放] 第 {self._log_frame_idx+1}/{len(self._log_frames)} 帧: Frame {frame['frame_num']}")
+
+        # 设置角度（注意：log里的角度是原始角度，需要和BLE一样做LR交换）
+        self._angles.clear()
+        _LR_MAP = {2:3, 3:2, 4:5, 5:4, 6:7, 7:6, 8:9, 9:8, 10:11, 11:10, 12:13, 13:12}
+        for k, v in frame['angles'].items():
+            mapped_k = _LR_MAP.get(k, k)
+            self._angles[mapped_k] = v
+
+        self._connected = True
+        self._log_frame_idx += 1
+
+    def _stop_log_play(self):
+        """停止播放log"""
+        self._log_playing = False
+        self._log_timer.stop()
+        print("[Log播放] 停止播放")
 
     def get_bvh_info(self):
         """获取BVH文件信息"""
@@ -1724,8 +1815,16 @@ class Qt3DSkeletonWidget(QWidget):
         row2.addWidget(make_btn('view_reset.png', "Reset View", self._reset_view))
         row2.addStretch(1)
 
+        # 第三行：Log播放控制（新增）
+        row3 = QHBoxLayout()
+        row3.setSpacing(3)
+        row3.addWidget(make_btn('play.png', "播放Log文件", self._load_and_play_log))
+        row3.addWidget(make_btn('pause.png', "停止播放", self._stop_log_play))
+        row3.addStretch(1)
+
         parent_layout.addLayout(row1)
         parent_layout.addLayout(row2)
+        parent_layout.addLayout(row3)
 
     def _get_view_center(self):
         """获取相机观察中心点"""
