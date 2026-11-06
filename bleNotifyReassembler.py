@@ -30,6 +30,13 @@ class BleNotifyReassembler:
         offset = int.from_bytes(data[3:5], byteorder="little")
         chunk_data = data[5:]
 
+        # 单片包(SOF+EOF，如20Hz角度包、设备信息包)本身完整：直接输出，不碰缓冲区。
+        # 否则它会夹在多片包(文件列表JSON)中间把缓冲区重置，文件列表偶发丢失。
+        if (flags & 0x03) == 0x03:
+            if offset == 0 and len(chunk_data) == total_len:
+                yield bytes(chunk_data)
+            return
+
         # SOF：新帧开始，重置缓冲区
         if (flags & 0x01) !=0:
             self.buf = bytearray(total_len)
@@ -50,3 +57,24 @@ class BleNotifyReassembler:
             if self.total_len > 0 and (0 not in self.received_mask):
                 yield bytes(self.buf)
             self.reset()
+
+
+if __name__ == "__main__":
+    # 自检：多片包中间夹一个单片包，两者都必须完整输出
+    def frag(flags, total, off, data):
+        return bytes([flags]) + total.to_bytes(2, "little") + off.to_bytes(2, "little") + data
+    big = bytes(range(256)) * 2 + b"xyz"          # 515B，分3片
+    single = b"\x01" + b"A" * 172                   # 角度包，单片
+    r, out = BleNotifyReassembler(), []
+    for f in (frag(0x01, len(big), 0, big[:239]),
+              frag(0x03, len(single), 0, single),   # 夹在中间
+              frag(0x00, len(big), 239, big[239:478]),
+              frag(0x02, len(big), 478, big[478:])):
+        out += list(r.feed(f))
+    assert out == [single, big], out
+    # 缺片仍丢弃
+    r, out = BleNotifyReassembler(), []
+    for f in (frag(0x01, len(big), 0, big[:239]), frag(0x02, len(big), 478, big[478:])):
+        out += list(r.feed(f))
+    assert out == [], out
+    print("reassembler self-check OK")

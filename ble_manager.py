@@ -154,7 +154,9 @@ class BleManager(QObject):
         if self.client is None or not self.client.is_connected:
             return
         try:
-            await self.client.write_gatt_char(self.WRITE_CHAR_UUID, data, response=False)
+            # 命令特征只声明 'write'(带应答)。response=False 在 Windows 能用，
+            # 但 macOS CoreBluetooth 会静默丢弃 → 文件列表/录制/对时全无反应。
+            await self.client.write_gatt_char(self.WRITE_CHAR_UUID, data, response=True)
         except Exception as e:
             self.sig_log.emit(f"{cmdinfo} command send failed: {str(e)}")
 
