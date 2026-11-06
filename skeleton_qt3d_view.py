@@ -55,7 +55,7 @@ DEFAULT_AVATAR = 'skier_pro'
 # 打印在所有 log（angle_log.txt / console）行首，用于与固件 FW_BUILD_TAG、BLE frame_cnt 对齐，
 # 避免"log 与代码版本不对应"。
 # 本次=手臂方向修正: BLE实时手臂(Shoulder/UpperArm/ForeArm)pitch(x)+roll(z)取负, 修正手往上显示往下+拧转反; 仅非virdyn路径
-HOST_BUILD_TAG = "HOST20261104_1430"
+HOST_BUILD_TAG = "HOST20261105_1430"
 
 # 各个人偶的配色方案：骨骼名 -> (R,G,B)
 AVATAR_COLORS = {
@@ -674,11 +674,11 @@ BONES = [
     ("Neck",         2, (0, 0.28, 0),        "neck.stl",      None, (0, 0.03, 0)),       # 3
     ("Head",         3, (0, 0.06, 0),        "head.stl",      None, (0, 0.05, 0)),       # 4
     ("Shoulder_L",   2, (-0.13, 0.28, 0),    None,             8,    (0, 0, 0)),         # 5 左肩（S8，实时读；virdyn恒Q，纯旋转支点）
-    ("UpperArm_L",   5, (0, 0, 0),           "upper_arm.stl", 10,   (0, -0.12, 0)),      # 6
+    ("UpperArm_L",   2, (-0.13, 0.28, 0),    "upper_arm.stl", 10,   (0, -0.12, 0)),      # 6 直接挂Spine，与Shoulder_L平级（S8下滑导致肩部角度不可靠）
     ("ForeArm_L",    6, (0, -0.24, 0),       "forearm.stl",   12,   (0, -0.11, 0)),      # 7
     ("Hand_L",       7, (0, -0.22, 0),       "hand.stl",      None, (0, -0.028, 0)),     # 8
     ("Shoulder_R",   2, (0.13, 0.28, 0),     None,             9,    (0, 0, 0)),         # 9 右肩（S9，实时读；virdyn恒Q，纯旋转支点）
-    ("UpperArm_R",   9, (0, 0, 0),           "upper_arm.stl", 11,   (0, -0.12, 0)),      # 10
+    ("UpperArm_R",   2, (0.13, 0.28, 0),     "upper_arm.stl", 11,   (0, -0.12, 0)),      # 10 直接挂Spine，与Shoulder_R平级
     ("ForeArm_R",   10, (0, -0.24, 0),       "forearm.stl",   13,   (0, -0.11, 0)),      # 11
     ("Hand_R",      11, (0, -0.22, 0),       "hand.stl",      None, (0, -0.028, 0)),     # 12
     ("Thigh_L",      1, (-0.06, -0.05, 0),   "thigh.stl",     4,    (0, -0.18, 0)),      # 13
@@ -991,11 +991,11 @@ class Qt3DSkeletonWidget(QWidget):
             (2, 3),    # Spine -> Neck (向上)
             (3, 4),    # Neck -> Head (向上)
             (2, 5),    # Spine -> Shoulder_L (向上，肩在Spine顶部)
-            (5, 6),    # Shoulder_L -> UpperArm_L (向下)
+            (2, 6),    # Spine -> UpperArm_L (与Shoulder_L平级，S8下滑不可靠)
             (6, 7),    # UpperArm_L -> ForeArm_L (向下)
             (7, 8),    # ForeArm_L -> Hand_L (向下)
             (2, 9),    # Spine -> Shoulder_R (向上)
-            (9, 10),   # Shoulder_R -> UpperArm_R (向下)
+            (2, 10),   # Spine -> UpperArm_R (与Shoulder_R平级)
             (10, 11),  # UpperArm_R -> ForeArm_R (向下)
             (11, 12),  # ForeArm_R -> Hand_R (向下)
             (0, 1),    # Hips -> Pelvis (居中)
@@ -1324,9 +1324,10 @@ class Qt3DSkeletonWidget(QWidget):
             # 相对旋转
             if bone.name == 'Hips':
                 # Hips（根节点）使用S1腰背部传感器控制整体躯干旋转
+                # 相机在+Z看人偶背面，pitch(ex)和roll(ez)方向与正面视角相反，需取反
                 if 1 in self._angles:
                     y, x, z = self._angles[1]
-                    rel_rot = euler_to_quaternion(y, x, z)
+                    rel_rot = euler_to_quaternion(y, -x, -z)
                 else:
                     rel_rot = QQuaternion()
             elif bone.name == 'Pelvis':
@@ -1443,11 +1444,12 @@ class Qt3DSkeletonWidget(QWidget):
                     else:
                         rel_rot = QQuaternion()
                 else:
-                    # T-pose基准修正：默认骨架ForeArm沿-Y(下垂)，T=Rz(-90)把上臂链转到水平T-pose，叠加人体坐标相对旋转
+                    # T-pose基准修正：默认骨架上臂沿X轴，T=Rz(-90)把上臂链转到水平T-pose，叠加人体坐标相对旋转
+                    # 注意：新骨骼层级（UpperArm挂Spine下）下不再需要x,z取负号hack
                     q_arm = QQuaternion()
                     if 10 in self._angles:
                         y, x, z = self._angles[10]
-                        q_arm = euler_to_quaternion(y, -x, -z)
+                        q_arm = euler_to_quaternion(y, x, z)
                     _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), -90)
                     rel_rot = q_arm * _T
             elif bone.name == 'UpperArm_R':
@@ -1459,11 +1461,12 @@ class Qt3DSkeletonWidget(QWidget):
                     else:
                         rel_rot = QQuaternion()
                 else:
-                    # T-pose基准修正：默认骨架ForeArm沿-Y(下垂)，T=Rz(+90)把上臂链转到水平T-pose，叠加人体坐标相对旋转
+                    # T-pose基准修正：默认骨架上臂沿X轴，T=Rz(+90)把上臂链转到水平T-pose，叠加人体坐标相对旋转
+                    # 注意：新骨骼层级（UpperArm挂Spine下）下不再需要x,z取负号hack
                     q_arm = QQuaternion()
                     if 11 in self._angles:
                         y, x, z = self._angles[11]
-                        q_arm = euler_to_quaternion(y, -x, -z)
+                        q_arm = euler_to_quaternion(y, x, z)
                     _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 0, 1), 90)
                     rel_rot = q_arm * _T
             elif bone.sensor_id and bone.sensor_id in self._angles:
