@@ -55,7 +55,7 @@ DEFAULT_AVATAR = 'skier_pro'
 # 打印在所有 log（angle_log.txt / console）行首，用于与固件 FW_BUILD_TAG、BLE frame_cnt 对齐，
 # 避免"log 与代码版本不对应"。
 # 本次=手臂方向修正: BLE实时手臂(Shoulder/UpperArm/ForeArm)pitch(x)+roll(z)取负, 修正手往上显示往下+拧转反; 仅非virdyn路径
-HOST_BUILD_TAG = "HOST20261106_2150"
+HOST_BUILD_TAG = "HOST20261106_2155"
 
 # 各个人偶的配色方案：骨骼名 -> (R,G,B)
 AVATAR_COLORS = {
@@ -1285,7 +1285,6 @@ class Qt3DSkeletonWidget(QWidget):
 
         print(f"[Log播放] 正在读取: {log_path}")
         frames = []
-        current_frame = None
 
         with open(log_path, 'r', encoding='latin-1') as f:
             for line in f:
@@ -1293,31 +1292,30 @@ class Qt3DSkeletonWidget(QWidget):
                 if not line:
                     continue
 
-                # 匹配FRAME行
+                # 匹配FRAME和角度数据在同一行
                 frame_match = re.search(r'\[FRAME (\d+)\]', line)
-                if frame_match:
-                    if current_frame is not None:
-                        frames.append(current_frame)
-                    frame_num = int(frame_match.group(1))
-                    current_frame = {
-                        'frame_num': frame_num,
-                        'angles': {}  # sensor_id -> (y, x, z)
-                    }
+                if not frame_match:
                     continue
 
-                # 解析原始角度
-                if current_frame is not None and 'S1' in line:
-                    sensor_pattern = r'S(\d+)[^:]*:([-\d.]+)/([-\d.]+)/([-\d.]+)'
-                    matches = re.findall(sensor_pattern, line)
-                    for match in matches:
-                        sensor_id = int(match[0])
-                        y = float(match[1])
-                        x = float(match[2])
-                        z = float(match[3])
-                        current_frame['angles'][sensor_id] = (y, x, z)
+                frame_num = int(frame_match.group(1))
+                angles = {}
 
-        if current_frame is not None:
-            frames.append(current_frame)
+                # 解析所有传感器角度
+                # 格式: S1腰:108/4/-3 或 S1:108.4/4.2/-3.1
+                sensor_pattern = r'S(\d+)[^:|]*:([-\d.]+)/([-\d.]+)/([-\d.]+)'
+                matches = re.findall(sensor_pattern, line)
+                for match in matches:
+                    sensor_id = int(match[0])
+                    y = float(match[1])
+                    x = float(match[2])
+                    z = float(match[3])
+                    angles[sensor_id] = (y, x, z)
+
+                if angles:
+                    frames.append({
+                        'frame_num': frame_num,
+                        'angles': angles
+                    })
 
         print(f"[Log播放] 解析到 {len(frames)} 帧")
         if len(frames) == 0:
@@ -1326,6 +1324,8 @@ class Qt3DSkeletonWidget(QWidget):
         # 只取最后50帧（避免太长）
         self._log_frames = frames[-50:]
         print(f"[Log播放] 使用最后 {len(self._log_frames)} 帧")
+        print(f"[Log播放] 第一帧角度: {self._log_frames[0]['angles']}")
+        print(f"[Log播放] 最后一帧角度: {self._log_frames[-1]['angles']}")
 
         # 开始播放
         self._log_playing = True
