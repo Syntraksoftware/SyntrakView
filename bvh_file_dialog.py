@@ -324,8 +324,16 @@ class BvhFileManagerDialog(QDialog):
         QTimer.singleShot(50, self.tree.scrollToBottom)
 
     def _build_tree_items(self, items: list, parent: Optional[QTreeWidgetItem]):
-        """递归构建树形节点"""
-        for item in items:
+        """递归构建树形节点：文件夹在前，文件在后，都按名称升序（年月日先后）"""
+        # 排序：文件夹在前，文件在后，按名称升序
+        def sort_key(item):
+            name = item.get("name", "")
+            itype = item.get("type", "file")
+            # 文件夹排前面（type=dir 排0，file排1），然后按名称升序
+            return (0 if itype == "dir" else 1, name)
+        sorted_items = sorted(items, key=sort_key)
+
+        for item in sorted_items:
             name = item.get("name", "")
             itype = item.get("type", "file")
             tree_item = QTreeWidgetItem()

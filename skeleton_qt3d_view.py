@@ -55,7 +55,10 @@ DEFAULT_AVATAR = 'skier_pro'
 # 打印在所有 log（angle_log.txt / console）行首，用于与固件 FW_BUILD_TAG、BLE frame_cnt 对齐，
 # 避免"log 与代码版本不对应"。
 # 本次=手臂方向修正: BLE实时手臂(Shoulder/UpperArm/ForeArm)pitch(x)+roll(z)取负, 修正手往上显示往下+拧转反; 仅非virdyn路径
-HOST_BUILD_TAG = "HOST20261106_2210"
+HOST_BUILD_TAG = "HOST20261109_1430"
+
+# ===== 调试日志开关（交付关闭，调试时改True） =====
+ANGLE_LOG_ENABLED = False
 
 # 各个人偶的配色方案：骨骼名 -> (R,G,B)
 AVATAR_COLORS = {
@@ -1435,28 +1438,29 @@ class Qt3DSkeletonWidget(QWidget):
         world_rot = [QQuaternion()] * len(self.bones)
 
         # [调试] 每30帧打印全部13路传感器角度，并落盘到 angle_log.txt（带渲染帧号）
-        if not hasattr(self, '_all_dbg'):
-            self._all_dbg = 0
-        self._all_dbg += 1
-        if self._all_dbg % 30 == 0 and self._angles:
-            names = {1:'S1腰',2:'S2左髋',3:'S3右髋',4:'S4左大腿',5:'S5右大腿',
-                     6:'S6左小腿',7:'S7右小腿',8:'S8左肩',9:'S9右肩',10:'S10左上臂',
-                     11:'S11右上臂',12:'S12左前臂',13:'S13右前臂'}
-            parts = []
-            for sid in range(1, 14):
-                if sid in self._angles:
-                    y, x, z = self._angles[sid]
-                    parts.append(f"{names.get(sid,f'S{sid}')}:{y:.0f}/{x:.0f}/{z:.0f}")
-            line = f"[{HOST_BUILD_TAG}] [FRAME {self._last_frame_cnt}] " + " | ".join(parts)
-            print("[ANGLES] " + line)
-            try:
-                if not hasattr(self, '_angle_log_fh'):
-                    self._angle_log_fh = _open_shared_angle_log(
-                        os.path.join(os.path.dirname(os.path.abspath(__file__)), "angle_log.txt"))
-                self._angle_log_fh.write(line + "\n")
-                self._angle_log_fh.flush()
-            except Exception:
-                pass
+        if ANGLE_LOG_ENABLED:
+            if not hasattr(self, '_all_dbg'):
+                self._all_dbg = 0
+            self._all_dbg += 1
+            if self._all_dbg % 30 == 0 and self._angles:
+                names = {1:'S1腰',2:'S2左髋',3:'S3右髋',4:'S4左大腿',5:'S5右大腿',
+                         6:'S6左小腿',7:'S7右小腿',8:'S8左肩',9:'S9右肩',10:'S10左上臂',
+                         11:'S11右上臂',12:'S12左前臂',13:'S13右前臂'}
+                parts = []
+                for sid in range(1, 14):
+                    if sid in self._angles:
+                        y, x, z = self._angles[sid]
+                        parts.append(f"{names.get(sid,f'S{sid}')}:{y:.0f}/{x:.0f}/{z:.0f}")
+                line = f"[{HOST_BUILD_TAG}] [FRAME {self._last_frame_cnt}] " + " | ".join(parts)
+                print("[ANGLES] " + line)
+                try:
+                    if not hasattr(self, '_angle_log_fh'):
+                        self._angle_log_fh = _open_shared_angle_log(
+                            os.path.join(os.path.dirname(os.path.abspath(__file__)), "angle_log.txt"))
+                    self._angle_log_fh.write(line + "\n")
+                    self._angle_log_fh.flush()
+                except Exception:
+                    pass
 
         for i, bone in enumerate(self.bones):
             # 相对旋转
@@ -1478,14 +1482,14 @@ class Qt3DSkeletonWidget(QWidget):
                           f"a2={self._angles.get(2)}, a3={self._angles.get(3)}")
                 if 2 in self._angles and 3 in self._angles:
                     y, x, z = average_euler(self._angles[2], self._angles[3])
-                    # x轴取反：前后方向修正
-                    rel_rot = euler_to_quaternion(y, -x, z)
+                    # x轴取反：前后方向修正；z轴取反：左右方向修正（与大腿一致）
+                    rel_rot = euler_to_quaternion(y, -x, -z)
                 elif 2 in self._angles:
                     y, x, z = self._angles[2]
-                    rel_rot = euler_to_quaternion(y, -x, z)
+                    rel_rot = euler_to_quaternion(y, -x, -z)
                 elif 3 in self._angles:
                     y, x, z = self._angles[3]
-                    rel_rot = euler_to_quaternion(y, -x, z)
+                    rel_rot = euler_to_quaternion(y, -x, -z)
                 else:
                     rel_rot = QQuaternion()
             elif bone.name == 'Spine':
@@ -1535,32 +1539,41 @@ class Qt3DSkeletonWidget(QWidget):
                     y, x, z = self._angles[4]
                 else:
                     y, x, z = 0, 0, 0
-                # x轴取反：前后方向修正（向前抬起=正方向）
-                rel_rot = euler_to_quaternion(y, -x, z)
+                # 与小腿一致：四元数层面共轭变换T=Ry(180)
+                q = euler_to_quaternion(y, x, z)
+                _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 1, 0), 180)
+                rel_rot = _T.conjugated() * q * _T
             elif bone.name == 'Thigh_R':
                 # 右大腿：用传感器5（右大腿）
                 if 5 in self._angles:
                     y, x, z = self._angles[5]
                 else:
                     y, x, z = 0, 0, 0
-                # x轴取反：前后方向修正
-                rel_rot = euler_to_quaternion(y, -x, z)
+                # 与小腿一致：四元数层面共轭变换T=Ry(180)
+                q = euler_to_quaternion(y, x, z)
+                _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 1, 0), 180)
+                rel_rot = _T.conjugated() * q * _T
             elif bone.name == 'Shin_L':
                 # 左小腿：用传感器6（左小腿）
                 if 6 in self._angles:
                     y, x, z = self._angles[6]
                 else:
                     y, x, z = 0, 0, 0
-                # 先改回原来的公式，和大腿一样
-                rel_rot = euler_to_quaternion(y, -x, z)
+                # 四元数层面共轭变换：还原q_joint后，用T=Ry(180)做坐标变换
+                # 避免euler层面万向锁的非线性变形
+                q = euler_to_quaternion(y, x, z)
+                _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 1, 0), 180)
+                rel_rot = _T.conjugated() * q * _T
             elif bone.name == 'Shin_R':
                 # 右小腿：用传感器7（右小腿）
                 if 7 in self._angles:
                     y, x, z = self._angles[7]
                 else:
                     y, x, z = 0, 0, 0
-                # x轴取反：前后方向修正
-                rel_rot = euler_to_quaternion(y, -x, z)
+                # 同左小腿：镜像变换
+                q = euler_to_quaternion(y, x, z)
+                _T = QQuaternion.fromAxisAndAngle(QVector3D(0, 1, 0), 180)
+                rel_rot = _T.conjugated() * q * _T
             elif bone.name == 'ForeArm_L':
                 if self._bvh_mode and self._bvh_retarget:
                     # virdyn 重定向：直接用人体坐标 euler(y,x,z)，与备份版本一致
@@ -1701,7 +1714,7 @@ class Qt3DSkeletonWidget(QWidget):
         self._prev_rel_rot = [bone.joint_transform.rotation() for bone in self.bones]
 
         # [调试] 每30帧打印关键关节实际渲染角度（局部+全局）
-        if self._all_dbg % 30 == 0 and self.bones:
+        if ANGLE_LOG_ENABLED and self._all_dbg % 30 == 0 and self.bones:
             render_names = {'Hips':'Hips', 'Spine':'Spine', 'UpperArm_L':'UArm_L',
                             'UpperArm_R':'UArm_R', 'ForeArm_L':'FArm_L', 'ForeArm_R':'FArm_R',
                             'Thigh_L':'Thigh_L', 'Thigh_R':'Thigh_R', 'Shin_L':'Shin_L', 'Shin_R':'Shin_R'}
