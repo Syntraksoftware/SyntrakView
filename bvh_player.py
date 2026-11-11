@@ -27,7 +27,7 @@ class BVHPlayer:
     BONE_TO_SENSOR = {
         # ===== 我们自己的BVH格式（Syntrak录制的文件）=====
         # 我们的BVH面朝+Z，Left=用户左手=屏幕右，需交换到右侧传感器
-        'Hips': None,           # 根节点，固定
+        'Hips': 1,             # 根节点，映射到传感器1（Waist）
         'Hip_Left': 3,
         'Thigh_Left': 5,
         'Calf_Left': 7,
@@ -261,11 +261,10 @@ class BVHPlayer:
                 elif ch_name == 'Zrotation':
                     rot_z = val
 
-            # BVH通常是ZXY旋转顺序，转换为我们的(y, x, z)格式
-            # 我们的euler_to_quaternion使用(y, x, z)即YXZ顺序
-            # 需要进行旋转顺序转换
-            y, x, z = self._convert_bvh_rotation(rot_x, rot_y, rot_z, joint.channels)
-            angles[sensor_id] = (y, x, z)
+            # 我们自己的BVH文件channels声明为 Yrotation Xrotation Zrotation（YXZ顺序），
+            # 数据直接写入 (ey, ex, ez)，与实时BLE发送的格式完全一致，无需转换。
+            # _convert_bvh_rotation 的提取公式是ZYX顺序，用于YXZ数据会导致旋转顺序错误。
+            angles[sensor_id] = (rot_y, rot_x, rot_z)
 
         # 处理需要平均的关节（Pelvis用左右髋平均，Spine用左右肩平均）
         # 这些在_update_poses中已经处理了，这里只需要提供单个传感器的数据
